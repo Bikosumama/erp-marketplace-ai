@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -12,13 +12,14 @@ import { PageLoader } from '@/components/LoadingSpinner';
 import type { ProductFormData } from '@/types';
 
 interface EditProductPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default function EditProductPage({ params }: EditProductPageProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const productId = parseInt(params.id, 10);
+  const { id } = use(params);
+  const productId = parseInt(id, 10);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 

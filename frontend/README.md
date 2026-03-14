@@ -4,7 +4,7 @@ A professional Next.js 14 frontend application for the ERP Marketplace AI system
 
 ## Tech Stack
 
-- **Framework**: Next.js 14 (App Router) + TypeScript
+- **Framework**: Next.js 15 (App Router) + TypeScript
 - **Styling**: Tailwind CSS (teal/blue theme)
 - **Data Fetching**: React Query (@tanstack/react-query)
 - **HTTP Client**: Axios
