@@ -23,3 +23,9 @@ Thumbs.db
 dist/
 build/
 *.log
+
+# Next.js
+.next/
+out/
+frontend/.next/
+frontend/out/
