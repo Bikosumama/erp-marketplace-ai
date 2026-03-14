@@ -9,8 +9,7 @@ if (!process.env.DATABASE_URL) {
 // Set PGSSLMODE=disable only in local development without SSL.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl:
-    process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+  ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
 });
 
 module.exports = pool;
