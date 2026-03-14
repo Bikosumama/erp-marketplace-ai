@@ -87,18 +87,26 @@ router.post('/', authMiddleware, async (req, res) => {
     if (Array.isArray(marketplace_identifiers)) {
       for (const mi of marketplace_identifiers) {
         if (!mi.marketplace_id) continue;
-        await client.query(`
-          INSERT INTO product_marketplace_identifiers
-            (product_id, marketplace_id, marketplace_barcode, marketplace_sku, marketplace_product_id, is_active)
-          VALUES ($1,$2,$3,$4,$5,$6)
-          ON CONFLICT DO NOTHING
-        `, [
-          product.id, mi.marketplace_id,
-          mi.marketplace_barcode || null,
-          mi.marketplace_sku || null,
-          mi.marketplace_product_id || null,
-          mi.is_active !== false,
-        ]);
+        try {
+          await client.query(`
+            INSERT INTO product_marketplace_identifiers
+              (product_id, marketplace_id, marketplace_barcode, marketplace_sku, marketplace_product_id, is_active)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (marketplace_id, marketplace_barcode) DO UPDATE SET
+              marketplace_sku = EXCLUDED.marketplace_sku,
+              marketplace_product_id = EXCLUDED.marketplace_product_id,
+              is_active = EXCLUDED.is_active,
+              updated_at = NOW()
+          `, [
+            product.id, mi.marketplace_id,
+            mi.marketplace_barcode || null,
+            mi.marketplace_sku || null,
+            mi.marketplace_product_id || null,
+            mi.is_active !== false,
+          ]);
+        } catch (miError) {
+          console.warn('Pazaryeri tanımlayıcısı eklenemedi:', miError.message);
+        }
       }
     }
 
@@ -158,7 +166,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
       sale_price !== undefined ? sale_price : null,
       list_price !== undefined ? list_price : null,
       currency || null,
-      vat_rate != null ? vat_rate : null,
+      vat_rate !== undefined ? vat_rate : null,
       status || null,
       attributes ? JSON.stringify(attributes) : null,
       id,
@@ -176,18 +184,26 @@ router.put('/:id', authMiddleware, async (req, res) => {
       );
       for (const mi of marketplace_identifiers) {
         if (!mi.marketplace_id) continue;
-        await client.query(`
-          INSERT INTO product_marketplace_identifiers
-            (product_id, marketplace_id, marketplace_barcode, marketplace_sku, marketplace_product_id, is_active)
-          VALUES ($1,$2,$3,$4,$5,$6)
-          ON CONFLICT DO NOTHING
-        `, [
-          id, mi.marketplace_id,
-          mi.marketplace_barcode || null,
-          mi.marketplace_sku || null,
-          mi.marketplace_product_id || null,
-          mi.is_active !== false,
-        ]);
+        try {
+          await client.query(`
+            INSERT INTO product_marketplace_identifiers
+              (product_id, marketplace_id, marketplace_barcode, marketplace_sku, marketplace_product_id, is_active)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (marketplace_id, marketplace_barcode) DO UPDATE SET
+              marketplace_sku = EXCLUDED.marketplace_sku,
+              marketplace_product_id = EXCLUDED.marketplace_product_id,
+              is_active = EXCLUDED.is_active,
+              updated_at = NOW()
+          `, [
+            id, mi.marketplace_id,
+            mi.marketplace_barcode || null,
+            mi.marketplace_sku || null,
+            mi.marketplace_product_id || null,
+            mi.is_active !== false,
+          ]);
+        } catch (miError) {
+          console.warn('Pazaryeri tanımlayıcısı eklenemedi:', miError.message);
+        }
       }
     }
 

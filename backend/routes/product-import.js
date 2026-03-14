@@ -227,13 +227,19 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
               await client.query(`
                 INSERT INTO product_marketplace_identifiers (product_id, marketplace_id, marketplace_barcode)
                 VALUES ($1,$2,$3)
-                ON CONFLICT (marketplace_id, marketplace_barcode) DO UPDATE SET marketplace_barcode=EXCLUDED.marketplace_barcode
+                ON CONFLICT (marketplace_id, marketplace_barcode) DO UPDATE SET
+                  product_id = EXCLUDED.product_id,
+                  is_active = TRUE,
+                  updated_at = NOW()
               `, [productId, mp.marketplace_id, value]);
             } else if (mp.field === 'sku') {
               await client.query(`
                 INSERT INTO product_marketplace_identifiers (product_id, marketplace_id, marketplace_sku)
                 VALUES ($1,$2,$3)
-                ON CONFLICT (marketplace_id, marketplace_sku) DO UPDATE SET marketplace_sku=EXCLUDED.marketplace_sku
+                ON CONFLICT (marketplace_id, marketplace_sku) DO UPDATE SET
+                  product_id = EXCLUDED.product_id,
+                  is_active = TRUE,
+                  updated_at = NOW()
               `, [productId, mp.marketplace_id, value]);
             }
           }

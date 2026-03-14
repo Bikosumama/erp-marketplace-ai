@@ -308,7 +308,7 @@ export default function ProductsPage() {
                       <td style={s.td}>{p.cost ? `${p.cost} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.sale_price ? `${p.sale_price} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.currency || 'TRY'}</td>
-                      <td style={s.td}>{p.vat_rate != null ? `%${p.vat_rate}` : '—'}</td>
+      <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
                       <td style={s.td}>
                         <span style={p.status === 'active' ? s.badgeActive : s.badgePassive}>
                           {p.status === 'active' ? 'Aktif' : 'Pasif'}
@@ -520,7 +520,7 @@ export default function ProductsPage() {
 
 function buildCategoryTree(categories, parentId = null, depth = 0) {
   return categories
-    .filter((c) => (c.parent_id == null ? parentId === null : parseInt(c.parent_id) === parentId))
+    .filter((c) => (c.parent_id === null || c.parent_id === undefined ? parentId === null : parseInt(c.parent_id) === parentId))
     .flatMap((c) => [
       { id: c.id, label: '  '.repeat(depth) + (depth > 0 ? '└ ' : '') + c.name },
       ...buildCategoryTree(categories, c.id, depth + 1),
