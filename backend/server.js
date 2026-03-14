@@ -35,10 +35,13 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
+app.use('/api/products/import', require('./routes/product-import'));
 app.use('/api/products', require('./routes/products'));
 app.use('/api/orders', require('./routes/orders'));
 app.use('/api/marketplaces', require('./routes/marketplaces'));
 app.use('/api/price-analysis', require('./routes/price-analysis'));
+app.use('/api/brands', require('./routes/brands'));
+app.use('/api/categories', require('./routes/categories'));
 
 // Error handling
 app.use((err, req, res, next) => {
