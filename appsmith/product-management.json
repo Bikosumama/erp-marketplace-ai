@@ -1,1 +1,532 @@
-{"appName":"ERP Marketplace AI","pageName":"ProductManagement","widgets":[{"type":"Text","name":"Title","text":"Ürün Yönetimi","fontSize":"24px","fontWeight":"bold"},{"type":"Button","name":"AddProductButton","label":"Yeni Ürün Ekle","onClick":"{{showAddProductModal.show()}}"},{"type":"Table","name":"ProductsTable","title":"Ürünler","columns":[{"key":"id","header":"ID"},{"key":"name","header":"Ürün Adı"},{"key":"sku","header":"SKU"},{"key":"cost","header":"Maliyet"},{"key":"stock","header":"Stok"},{"key":"actions","header":"İşlemler"}],"rows":"{{products}}"},{"type":"Modal","name":"AddProductModal","title":"Yeni Ürün Ekle","children":[{"type":"TextInput","name":"ProductNameInput","label":"Ürün Adı","placeholder":"Ürün adını gir"},{"type":"TextInput","name":"SKUInput","label":"SKU","placeholder":"SKU gir"},{"type":"NumberInput","name":"CostInput","label":"Maliyet","placeholder":"Maliyeti gir"},{"type":"Button","name":"SaveProductButton","label":"Kaydet"}]},{"type":"Modal","name":"SyncMarketplaceModal","title":"Pazaryeri Senkronizasyonu","children":[{"type":"Select","name":"MarketplaceSelect","label":"Pazaryeri Seç","options":[{"label":"Trendyol","value":"trendyol"},{"label":"Hepsiburada","value":"hepsiburada"},{"label":"Amazon Türkiye","value":"amazon"},{"label":"N11","value":"n11"},{"label":"İdefix","value":"idefix"},{"label":"Pazarama","value":"pazarama"}]},{"type":"Button","name":"SyncButton","label":"Senkronize Et"}]}]}
+{
+  "exportedApplication": {
+    "name": "ERP Marketplace",
+    "slug": "erp-marketplace",
+    "color": "#00897B",
+    "icon": "shop",
+    "applicationVersion": 2,
+    "appLayout": {
+      "type": "FLUID"
+    },
+    "isManualUpdate": false,
+    "evaluationVersion": 2
+  },
+  "pageList": [
+    {
+      "id": "page_products_001",
+      "name": "Products",
+      "slug": "products",
+      "customSlug": "",
+      "isDefault": true,
+      "layouts": [
+        {
+          "id": "layout_products_001",
+          "dsl": {
+            "widgetId": "0",
+            "widgetName": "MainContainer",
+            "type": "CANVAS_WIDGET",
+            "version": 1,
+            "minHeight": 1292,
+            "children": [
+              {
+                "widgetId": "header_container_001",
+                "widgetName": "HeaderContainer",
+                "type": "CONTAINER_WIDGET",
+                "version": 1,
+                "topRow": 0,
+                "bottomRow": 8,
+                "leftColumn": 0,
+                "rightColumn": 64,
+                "backgroundColor": "#00897B",
+                "borderRadius": "0px",
+                "parentId": "0",
+                "isVisible": true,
+                "children": [
+                  {
+                    "widgetId": "header_title_001",
+                    "widgetName": "AppTitle",
+                    "type": "TEXT_WIDGET",
+                    "version": 1,
+                    "text": "🛒 ERP Marketplace",
+                    "fontSize": "HEADING1",
+                    "fontStyle": "BOLD",
+                    "textColor": "#FFFFFF",
+                    "textAlign": "LEFT",
+                    "topRow": 1,
+                    "bottomRow": 5,
+                    "leftColumn": 2,
+                    "rightColumn": 30,
+                    "parentId": "header_container_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "nav_products_btn_001",
+                    "widgetName": "NavProductsButton",
+                    "type": "BUTTON_WIDGET",
+                    "version": 1,
+                    "text": "Products",
+                    "buttonColor": "#00695C",
+                    "buttonVariant": "PRIMARY",
+                    "borderRadius": "4px",
+                    "topRow": 2,
+                    "bottomRow": 6,
+                    "leftColumn": 32,
+                    "rightColumn": 44,
+                    "parentId": "header_container_001",
+                    "isVisible": true,
+                    "onClick": "{{navigateTo('Products')}}"
+                  }
+                ]
+              },
+              {
+                "widgetId": "page_title_001",
+                "widgetName": "PageTitle",
+                "type": "TEXT_WIDGET",
+                "version": 1,
+                "text": "Products",
+                "fontSize": "HEADING2",
+                "fontStyle": "BOLD",
+                "textColor": "#00897B",
+                "textAlign": "LEFT",
+                "topRow": 10,
+                "bottomRow": 14,
+                "leftColumn": 2,
+                "rightColumn": 30,
+                "parentId": "0",
+                "isVisible": true
+              },
+              {
+                "widgetId": "add_product_btn_001",
+                "widgetName": "AddProductButton",
+                "type": "BUTTON_WIDGET",
+                "version": 1,
+                "text": "＋ Add Product",
+                "buttonColor": "#00897B",
+                "buttonVariant": "PRIMARY",
+                "borderRadius": "4px",
+                "topRow": 10,
+                "bottomRow": 14,
+                "leftColumn": 50,
+                "rightColumn": 64,
+                "parentId": "0",
+                "isVisible": true,
+                "onClick": "{{AddProductModal.show()}}"
+              },
+              {
+                "widgetId": "products_table_001",
+                "widgetName": "ProductsTable",
+                "type": "TABLE_WIDGET_V2",
+                "version": 1,
+                "tableData": "{{getProducts.data.products}}",
+                "defaultSelectedRowIndex": 0,
+                "columnOrder": ["id", "name", "price", "stock", "customColumn1"],
+                "primaryColumns": {
+                  "id": {
+                    "id": "id",
+                    "alias": "id",
+                    "originalId": "id",
+                    "columnType": "number",
+                    "label": "ID",
+                    "accessor": "id",
+                    "isVisible": true,
+                    "index": 0,
+                    "isCellEditable": false
+                  },
+                  "name": {
+                    "id": "name",
+                    "alias": "name",
+                    "originalId": "name",
+                    "columnType": "text",
+                    "label": "Name",
+                    "accessor": "name",
+                    "isVisible": true,
+                    "index": 1,
+                    "isCellEditable": false
+                  },
+                  "price": {
+                    "id": "price",
+                    "alias": "price",
+                    "originalId": "price",
+                    "columnType": "currency",
+                    "label": "Price",
+                    "accessor": "price",
+                    "isVisible": true,
+                    "index": 2,
+                    "isCellEditable": false,
+                    "currencyCode": "USD",
+                    "decimals": 2
+                  },
+                  "stock": {
+                    "id": "stock",
+                    "alias": "stock",
+                    "originalId": "stock",
+                    "columnType": "number",
+                    "label": "Stock",
+                    "accessor": "stock",
+                    "isVisible": true,
+                    "index": 3,
+                    "isCellEditable": false
+                  },
+                  "customColumn1": {
+                    "id": "customColumn1",
+                    "alias": "customColumn1",
+                    "originalId": "customColumn1",
+                    "columnType": "button",
+                    "label": "Actions",
+                    "accessor": "customColumn1",
+                    "isVisible": true,
+                    "index": 4,
+                    "isCellEditable": false,
+                    "buttonLabel": "Delete",
+                    "buttonColor": "#E53935",
+                    "buttonVariant": "PRIMARY",
+                    "onClick": "{{deleteProduct.run(() => { showAlert('Product deleted', 'success'); getProducts.run(); }, () => showAlert('Delete failed', 'error')); }}",
+                    "dynamicBindingPathList": [{"key": "onClick"}]
+                  }
+                },
+                "topRow": 16,
+                "bottomRow": 60,
+                "leftColumn": 0,
+                "rightColumn": 64,
+                "parentId": "0",
+                "isVisible": true,
+                "onPageChange": "{{getProducts.run()}}",
+                "isSortable": true,
+                "delimiter": ",",
+                "defaultSearchText": "",
+                "isVisibleSearch": true,
+                "isVisibleFilters": true,
+                "isVisibleDownload": false,
+                "isVisiblePagination": true,
+                "enableClientSideSearch": true
+              },
+              {
+                "widgetId": "add_product_modal_001",
+                "widgetName": "AddProductModal",
+                "type": "MODAL_WIDGET",
+                "version": 1,
+                "canEscapeKeyClose": true,
+                "canOutsideClickClose": false,
+                "size": "MODAL_SMALL",
+                "topRow": 0,
+                "bottomRow": 70,
+                "leftColumn": 0,
+                "rightColumn": 24,
+                "parentId": "0",
+                "isVisible": false,
+                "children": [
+                  {
+                    "widgetId": "modal_title_001",
+                    "widgetName": "ModalTitle",
+                    "type": "TEXT_WIDGET",
+                    "version": 1,
+                    "text": "Add New Product",
+                    "fontSize": "HEADING3",
+                    "fontStyle": "BOLD",
+                    "textColor": "#00897B",
+                    "textAlign": "CENTER",
+                    "topRow": 1,
+                    "bottomRow": 5,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "product_name_input_001",
+                    "widgetName": "ProductNameInput",
+                    "type": "INPUT_WIDGET_V2",
+                    "version": 2,
+                    "inputType": "TEXT",
+                    "label": "Product Name",
+                    "placeholderText": "Enter product name",
+                    "isRequired": true,
+                    "validation": "{{ProductNameInput.text.length > 0}}",
+                    "topRow": 6,
+                    "bottomRow": 14,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "product_price_input_001",
+                    "widgetName": "ProductPriceInput",
+                    "type": "INPUT_WIDGET_V2",
+                    "version": 2,
+                    "inputType": "NUMBER",
+                    "label": "Price",
+                    "placeholderText": "Enter price (e.g. 29.99)",
+                    "isRequired": true,
+                    "validation": "{{ProductPriceInput.text > 0}}",
+                    "topRow": 15,
+                    "bottomRow": 23,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "product_stock_input_001",
+                    "widgetName": "ProductStockInput",
+                    "type": "INPUT_WIDGET_V2",
+                    "version": 2,
+                    "inputType": "NUMBER",
+                    "label": "Stock",
+                    "placeholderText": "Enter stock quantity",
+                    "isRequired": true,
+                    "validation": "{{ProductStockInput.text >= 0}}",
+                    "topRow": 24,
+                    "bottomRow": 32,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "product_desc_input_001",
+                    "widgetName": "ProductDescInput",
+                    "type": "INPUT_WIDGET_V2",
+                    "version": 2,
+                    "inputType": "TEXT",
+                    "label": "Description",
+                    "placeholderText": "Enter product description (optional)",
+                    "isRequired": false,
+                    "topRow": 33,
+                    "bottomRow": 41,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true
+                  },
+                  {
+                    "widgetId": "modal_error_text_001",
+                    "widgetName": "ModalErrorText",
+                    "type": "TEXT_WIDGET",
+                    "version": 1,
+                    "text": "{{createProduct.isError ? createProduct.error.message : ''}}",
+                    "textColor": "#E53935",
+                    "textAlign": "LEFT",
+                    "topRow": 42,
+                    "bottomRow": 46,
+                    "leftColumn": 1,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": "{{createProduct.isError}}",
+                    "dynamicBindingPathList": [
+                      {"key": "text"},
+                      {"key": "isVisible"}
+                    ]
+                  },
+                  {
+                    "widgetId": "modal_submit_btn_001",
+                    "widgetName": "ModalSubmitButton",
+                    "type": "BUTTON_WIDGET",
+                    "version": 1,
+                    "text": "Add Product",
+                    "buttonColor": "#00897B",
+                    "buttonVariant": "PRIMARY",
+                    "borderRadius": "4px",
+                    "isDisabled": "{{!ProductNameInput.text || !ProductPriceInput.text || ProductStockInput.text === ''}}",
+                    "topRow": 48,
+                    "bottomRow": 56,
+                    "leftColumn": 1,
+                    "rightColumn": 12,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true,
+                    "onClick": "{{createProduct.run(() => { showAlert('Product added successfully!', 'success'); AddProductModal.hide(); getProducts.run(); ProductNameInput.setTextValue(''); ProductPriceInput.setTextValue(''); ProductStockInput.setTextValue(''); ProductDescInput.setTextValue(''); }, () => showAlert('Failed to add product: ' + createProduct.error.message, 'error'))}}",
+                    "dynamicBindingPathList": [
+                      {"key": "isDisabled"},
+                      {"key": "onClick"}
+                    ]
+                  },
+                  {
+                    "widgetId": "modal_cancel_btn_001",
+                    "widgetName": "ModalCancelButton",
+                    "type": "BUTTON_WIDGET",
+                    "version": 1,
+                    "text": "Cancel",
+                    "buttonColor": "#90A4AE",
+                    "buttonVariant": "SECONDARY",
+                    "borderRadius": "4px",
+                    "topRow": 48,
+                    "bottomRow": 56,
+                    "leftColumn": 13,
+                    "rightColumn": 23,
+                    "parentId": "add_product_modal_001",
+                    "isVisible": true,
+                    "onClick": "{{AddProductModal.hide()}}"
+                  }
+                ]
+              }
+            ]
+          },
+          "layoutOnLoadActions": [
+            [
+              {
+                "id": "action_getProducts_001",
+                "name": "getProducts",
+                "collectionId": ""
+              }
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "datasourceList": [
+    {
+      "id": "datasource_erp_api_001",
+      "name": "ErpMarketplaceAPI",
+      "pluginId": "restapi-plugin",
+      "pluginType": "API",
+      "datasourceConfiguration": {
+        "url": "https://multiengined-kylan-ulcerously.ngrok-free.dev",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "ngrok-skip-browser-warning",
+            "value": "true"
+          }
+        ],
+        "queryParameters": [],
+        "connection": {
+          "mode": "READ_WRITE"
+        }
+      },
+      "isValid": true,
+      "new": false
+    }
+  ],
+  "actionList": [
+    {
+      "id": "action_getHealth_001",
+      "name": "getHealth",
+      "collectionId": "",
+      "datasource": {
+        "id": "datasource_erp_api_001",
+        "name": "ErpMarketplaceAPI",
+        "pluginId": "restapi-plugin",
+        "datasourceConfiguration": {
+          "url": "https://multiengined-kylan-ulcerously.ngrok-free.dev"
+        }
+      },
+      "pageId": "page_products_001",
+      "actionConfiguration": {
+        "httpMethod": "GET",
+        "path": "/api/health",
+        "headers": [],
+        "queryParameters": [],
+        "body": "",
+        "timeoutInMillisecond": 10000,
+        "paginationType": "NONE"
+      },
+      "pluginType": "API",
+      "isValid": true,
+      "jsonPathKeys": []
+    },
+    {
+      "id": "action_getProducts_001",
+      "name": "getProducts",
+      "collectionId": "",
+      "datasource": {
+        "id": "datasource_erp_api_001",
+        "name": "ErpMarketplaceAPI",
+        "pluginId": "restapi-plugin",
+        "datasourceConfiguration": {
+          "url": "https://multiengined-kylan-ulcerously.ngrok-free.dev"
+        }
+      },
+      "pageId": "page_products_001",
+      "actionConfiguration": {
+        "httpMethod": "GET",
+        "path": "/api/products",
+        "headers": [],
+        "queryParameters": [],
+        "body": "",
+        "timeoutInMillisecond": 10000,
+        "paginationType": "NONE"
+      },
+      "pluginType": "API",
+      "isValid": true,
+      "jsonPathKeys": [],
+      "executeOnLoad": true,
+      "confirmBeforeExecute": false
+    },
+    {
+      "id": "action_createProduct_001",
+      "name": "createProduct",
+      "collectionId": "",
+      "datasource": {
+        "id": "datasource_erp_api_001",
+        "name": "ErpMarketplaceAPI",
+        "pluginId": "restapi-plugin",
+        "datasourceConfiguration": {
+          "url": "https://multiengined-kylan-ulcerously.ngrok-free.dev"
+        }
+      },
+      "pageId": "page_products_001",
+      "actionConfiguration": {
+        "httpMethod": "POST",
+        "path": "/api/products",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "queryParameters": [],
+        "body": "{{JSON.stringify({name: ProductNameInput.text, price: Number(ProductPriceInput.text), stock: Number(ProductStockInput.text), description: ProductDescInput.text})}}",
+        "timeoutInMillisecond": 10000,
+        "paginationType": "NONE"
+      },
+      "pluginType": "API",
+      "isValid": true,
+      "jsonPathKeys": ["ProductNameInput.text", "ProductPriceInput.text", "ProductStockInput.text", "ProductDescInput.text"],
+      "dynamicBindingPathList": [{"key": "actionConfiguration.body"}],
+      "executeOnLoad": false,
+      "confirmBeforeExecute": false
+    },
+    {
+      "id": "action_deleteProduct_001",
+      "name": "deleteProduct",
+      "collectionId": "",
+      "datasource": {
+        "id": "datasource_erp_api_001",
+        "name": "ErpMarketplaceAPI",
+        "pluginId": "restapi-plugin",
+        "datasourceConfiguration": {
+          "url": "https://multiengined-kylan-ulcerously.ngrok-free.dev"
+        }
+      },
+      "pageId": "page_products_001",
+      "actionConfiguration": {
+        "httpMethod": "DELETE",
+        "path": "/api/products/{{ProductsTable.triggeredRow.id}}",
+        "headers": [],
+        "queryParameters": [],
+        "body": "",
+        "timeoutInMillisecond": 10000,
+        "paginationType": "NONE"
+      },
+      "pluginType": "API",
+      "isValid": true,
+      "jsonPathKeys": ["ProductsTable.triggeredRow.id"],
+      "dynamicBindingPathList": [{"key": "actionConfiguration.path"}],
+      "executeOnLoad": false,
+      "confirmBeforeExecute": true
+    }
+  ],
+  "actionCollectionList": [],
+  "customJSLibList": [],
+  "moduleList": [],
+  "updatedResources": {
+    "datasourceList": ["datasource_erp_api_001"],
+    "pageList": ["page_products_001"],
+    "queryList": ["action_getHealth_001", "action_getProducts_001", "action_createProduct_001", "action_deleteProduct_001"],
+    "actionCollectionList": []
+  }
+}

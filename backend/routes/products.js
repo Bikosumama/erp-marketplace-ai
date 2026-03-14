@@ -5,7 +5,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     // Query database for products
-    res.json({ message: 'Tüm ürünler' });
+    res.json({ products: [] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -14,9 +14,13 @@ router.get('/', async (req, res) => {
 // POST create new product
 router.post('/', async (req, res) => {
   try {
-    const { name, description, cost, sku } = req.body;
+    const { name, description, price, stock } = req.body;
+    if (!name || price === undefined || stock === undefined) {
+      return res.status(400).json({ error: 'name, price and stock are required' });
+    }
     // Insert product to database
-    res.json({ message: 'Ürün oluşturuldu', data: req.body });
+    const product = { id: Date.now(), name, description, price, stock };
+    res.status(201).json({ message: 'Ürün oluşturuldu', product });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -26,8 +30,9 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const { name, description, price, stock } = req.body;
     // Update product in database
-    res.json({ message: 'Ürün güncellendi', id });
+    res.json({ message: 'Ürün güncellendi', product: { id, name, description, price, stock } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
