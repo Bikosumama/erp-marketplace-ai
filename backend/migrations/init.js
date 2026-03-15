@@ -20,7 +20,6 @@ async function init() {
   try {
     await client.query('BEGIN');
 
-    // Users
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -31,7 +30,6 @@ async function init() {
       );
     `);
 
-    // Brands
     await client.query(`
       CREATE TABLE IF NOT EXISTS brands (
         id SERIAL PRIMARY KEY,
@@ -40,7 +38,6 @@ async function init() {
       );
     `);
 
-    // Categories (self-referencing tree)
     await client.query(`
       CREATE TABLE IF NOT EXISTS categories (
         id SERIAL PRIMARY KEY,
@@ -51,7 +48,6 @@ async function init() {
       );
     `);
 
-    // Marketplaces
     await client.query(`
       CREATE TABLE IF NOT EXISTS marketplaces (
         id SERIAL PRIMARY KEY,
@@ -63,7 +59,6 @@ async function init() {
       );
     `);
 
-    // Products (ERP master)
     await client.query(`
       CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
@@ -102,7 +97,6 @@ async function init() {
       ON categories (LOWER(name), COALESCE(parent_id, -1));
     `);
 
-    // Product marketplace identifiers (0..N per product per marketplace)
     await client.query(`
       CREATE TABLE IF NOT EXISTS product_marketplace_identifiers (
         id SERIAL PRIMARY KEY,
@@ -123,7 +117,6 @@ async function init() {
       CREATE INDEX IF NOT EXISTS idx_pmi_product_id ON product_marketplace_identifiers(product_id);
     `);
 
-    // Marketplace accounts
     await client.query(`
       CREATE TABLE IF NOT EXISTS marketplace_accounts (
         id SERIAL PRIMARY KEY,
@@ -133,7 +126,6 @@ async function init() {
       );
     `);
 
-    // Orders
     await client.query(`
       CREATE TABLE IF NOT EXISTS orders (
         id SERIAL PRIMARY KEY,
@@ -150,11 +142,10 @@ async function init() {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error creating tables:', err);
-    throw err;
   } finally {
     client.release();
-    await pool.end();
+    // pool.end() KALDIRILDI - server.js pool'u kullanmaya devam edecek
   }
 }
 
-init();
+module.exports = init;
