@@ -2,56 +2,124 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const morgan = require('morgan');
 
 dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// ✅ Güvenlik header'ları
+app.use(helmet());
 
-// Global rate limiter
+// ✅ CORS - sadece izin verilen originlere
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3001'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Postman/sunucu istekleri için origin olmayabilir
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: ${origin} adresine izin verilmiyor`));
+    }
+  },
+  credentials: true,
+}));
+
+// ✅ Loglama
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+app.use(express.json({ limit: '10mb' }));
+
+// Rate limiter'lar
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { error: 'Çok fazla istek gönderildi, lütfen bekleyin.' },
 });
 app.use(globalLimiter);
 
-// Stricter limiter for auth endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  message: { error: 'Çok fazla giriş denemesi, lütfen bekleyin.' },
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
+// ✅ Auth middleware
+const { authenticateToken } = require('./middleware/auth');
+
+// Health check - DB bağlantısını da kontrol eder
+app.get('/api/health', async (req, res) => {
+  try {
+    const { pool } = require('./db');
+    await pool.query('SELECT 1');
+    res.json({ status: 'OK', message: 'Server is running', db: 'connected' });
+  } catch (err) {
+    res.status(503).json({ status: 'ERROR', message: 'DB bağlantısı yok', db: 'disconnected' });
+  }
 });
 
 // Routes
 app.use('/api/auth', authLimiter, require('./routes/auth'));
-app.use('/api/products/import', require('./routes/product-import'));
-app.use('/api/products', require('./routes/products'));
-app.use('/api/orders', require('./routes/orders'));
-app.use('/api/marketplaces', require('./routes/marketplaces'));
-app.use('/api/price-analysis', require('./routes/price-analysis'));
-app.use('/api/brands', require('./routes/brands'));
-app.use('/api/categories', require('./routes/categories'));
+app.use('/api/products/import', authenticateToken, require('./routes/product-import')); // ✅ Auth eklendi
+app.use('/api/products', authenticateToken, require('./routes/products'));
+app.use('/api/orders', authenticateToken, require('./routes/orders'));
+app.use('/api/marketplaces', authenticateToken, require('./routes/marketplaces'));
+app.use('/api/price-analysis', authenticateToken, require('./routes/price-analysis'));
+app.use('/api/brands', authenticateToken, require('./routes/brands'));
+app.use('/api/categories', authenticateToken, require('./routes/categories'));
 
-// Error handling
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Sunucu hatası' });
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint bulunamadı' });
 });
 
+// ✅ Global error handler - detaylı
+app.use((err, req, res, next) => {
+  console.error(`[${new Date().toISOString()}] ${err.stack}`);
+
+  // CORS hatasını özel yakala
+  if (err.message?.startsWith('CORS:')) {
+    return res.status(403).json({ error: err.message });
+  }
+
+  const status = err.status || err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production'
+    ? 'Sunucu hatası'
+    : err.message;
+
+  res.status(status).json({ error: message });
+});
+
+// ✅ Unhandled hataları yakala - sunucu çökmesini önle
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+// ✅ Graceful shutdown
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server ${PORT} portunda çalışıyor`);
+const server = app.listen(PORT, () => {
+  console.log(`Server ${PORT} portunda çalışıyor [${process.env.NODE_ENV || 'development'}]`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM alındı, sunucu kapatılıyor...');
+  server.close(() => {
+    console.log('Sunucu kapatıldı.');
+    process.exit(0);
+  });
 });
 
 module.exports = app;
