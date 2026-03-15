@@ -23,7 +23,7 @@ const formatPercent = (value) => {
 export default function PriceAnalysisPage() {
   const { user, token, loading } = useAuth();
   const router = useRouter();
-  const fileInputRef = useRef(null); // Dosya girişi için referans
+  const fileInputRef = useRef(null);
 
   const [summary, setSummary] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
@@ -38,7 +38,7 @@ export default function PriceAnalysisPage() {
   const [applyStatus, setApplyStatus] = useState({});
   const [analyzing, setAnalyzing] = useState(false);
   const [downloadingExcel, setDownloadingExcel] = useState(false);
-  const [importingExcel, setImportingExcel] = useState(false); // Yeni yükleme durumu
+  const [importingExcel, setImportingExcel] = useState(false);
   const [rejectingId, setRejectingId] = useState(null);
 
   useEffect(() => {
@@ -47,7 +47,6 @@ export default function PriceAnalysisPage() {
 
   const authHeader = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
-  // API Veri Çekme Fonksiyonları
   const fetchSummary = useCallback(async () => {
     const res = await fetch(`${API_URL}/api/price-analysis/summary`, { headers: authHeader() });
     const data = await res.json();
@@ -100,7 +99,6 @@ export default function PriceAnalysisPage() {
     if (user && token) fetchAll();
   }, [user, token, fetchAll]);
 
-  // Analiz ve İşlem Fonksiyonları
   const handleAnalyze = async (productId = '') => {
     setAnalyzing(true);
     setError(''); setSuccess('');
@@ -174,7 +172,7 @@ export default function PriceAnalysisPage() {
     try {
       const res = await fetch(`${API_URL}/api/price-analysis/import-and-analyze`, {
         method: 'POST',
-        headers: { ...authHeader() }, // FormData olduğu için Content-Type eklemiyoruz, tarayıcı halleder
+        headers: { ...authHeader() }, // formData ile gönderdiğimiz için Content-Type tarayıcıya bırakılır
         body: formData,
       });
 
@@ -182,12 +180,12 @@ export default function PriceAnalysisPage() {
       if (!res.ok) throw new Error(data.error || 'Excel yükleme hatası');
 
       setSuccess(`İşlem Tamamlandı: ${data.count} ürün analiz edildi.`);
-      await fetchAll(); // Sayfayı güncelle
+      await fetchAll(); 
     } catch (err) {
       setError(err.message || 'Excel dosyası işlenirken bir hata oluştu.');
     } finally {
       setImportingExcel(false);
-      e.target.value = null; // Inputu temizle
+      e.target.value = null; // Aynı dosyayı tekrar seçebilmek için temizle
     }
   };
 
@@ -225,12 +223,14 @@ export default function PriceAnalysisPage() {
             <h1 style={styles.heading}>RadarAnaliz / Fiyat Analizi</h1>
             <p style={styles.subheading}>Ürün bazlı öneriler ve toplu işlemler tek ekranda.</p>
           </div>
+          
+          {/* SAĞ ÜST BUTONLARIN OLDUĞU ALAN */}
           <div style={styles.headerActions}>
             <button onClick={() => handleAnalyze(selectedProductId)} style={styles.btnPrimary} disabled={analyzing}>
               {analyzing ? 'Analiz çalışıyor...' : selectedProductId ? 'Seçili ürünü analiz et' : 'Toplu analizi başlat'}
             </button>
             
-            {/* --- YENİ IMPORT BUTONU --- */}
+            {/* EXCEL IMPORT BUTONU BURADA */}
             <label style={{...styles.btnImport, opacity: importingExcel ? 0.7 : 1}}>
               {importingExcel ? 'Yükleniyor...' : 'Excel ile Analiz Yükle'}
               <input 
@@ -246,6 +246,7 @@ export default function PriceAnalysisPage() {
             <button onClick={handleExportExcel} style={styles.btnExcel} disabled={downloadingExcel || visibleRecommendations.length === 0}>
               {downloadingExcel ? 'Excel hazırlanıyor...' : 'Excel Aktar'}
             </button>
+            
             <button onClick={() => fetchAll()} style={styles.btnSecondary}>Yenile</button>
           </div>
         </div>
@@ -253,7 +254,6 @@ export default function PriceAnalysisPage() {
         {error && <div style={styles.error}>{error}</div>}
         {success && <div style={styles.success}>{success}</div>}
 
-        {/* Özet Kartları */}
         <div style={styles.summaryGrid}>
           <SummaryCard title="Bekleyen öneri" value={summary?.recommendations?.pending ?? 0} hint="Henüz uygulanmamış kararlar" />
           <SummaryCard title="Uygulanan öneri" value={summary?.recommendations?.applied ?? 0} hint="Fiyatı güncellenmiş kayıtlar" />
@@ -261,7 +261,6 @@ export default function PriceAnalysisPage() {
           <SummaryCard title="Açık uyarı" value={summary?.alerts?.open ?? 0} hint={`Kritik: ${summary?.alerts?.critical ?? 0}`} />
         </div>
 
-        {/* Filtre Barı */}
         <div style={styles.filterBar}>
           <label style={styles.filterLabel}>
             Ürün ID
@@ -286,7 +285,6 @@ export default function PriceAnalysisPage() {
           <button onClick={() => { setSelectedProductId(''); setStatusFilter('pending'); }} style={styles.btnGhost}>Sıfırla</button>
         </div>
 
-        {/* Sekmeler (Tabs) */}
         <div style={styles.tabs}>
           {[
             ['recommendations', 'Öneriler'],
@@ -303,7 +301,6 @@ export default function PriceAnalysisPage() {
           ))}
         </div>
 
-        {/* Tab İçerikleri */}
         {fetching ? (
           <div style={styles.loading}>Veriler yükleniyor...</div>
         ) : activeTab === 'recommendations' ? (
@@ -352,7 +349,6 @@ export default function PriceAnalysisPage() {
           )
         ) : activeTab === 'history' ? (
           <div style={styles.tableWrap}>
-            {/* Geçmiş Tablosu... (Mevcut kodunuzu buraya koyabilirsiniz) */}
             <table style={styles.table}>
                 <thead>
                   <tr>
@@ -376,7 +372,6 @@ export default function PriceAnalysisPage() {
           </div>
         ) : (
           <div style={styles.alertList}>
-             {/* Uyarı Listesi... (Mevcut kodunuzu buraya koyabilirsiniz) */}
              {alerts.map(a => (
                <div key={a.id} style={styles.alertCard}>{a.message}</div>
              ))}
@@ -387,7 +382,6 @@ export default function PriceAnalysisPage() {
   );
 }
 
-// Alt Bileşenler (SummaryCard, MetricRow, RiskBadge vb.)
 function SummaryCard({ title, value, hint }) {
   return (
     <div style={styles.summaryCard}>
@@ -412,9 +406,7 @@ function RiskBadge({ risk }) {
   return <span style={{ ...styles.riskBadge, ...style }}>{risk === 'high' ? 'Yüksek Risk' : 'Düşük Risk'}</span>;
 }
 
-// STİLLER
 const styles = {
-  // Mevcut stillerinizi koruyun...
   loading: { padding: '40px', textAlign: 'center', fontSize: '18px' },
   main: { padding: '32px', maxWidth: '1400px', margin: '0 auto' },
   header: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap' },
@@ -424,7 +416,7 @@ const styles = {
   btnPrimary: { padding: '10px 18px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   btnSecondary: { padding: '10px 18px', backgroundColor: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   btnExcel: { padding: '10px 18px', backgroundColor: '#065f46', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
-  btnImport: { padding: '10px 18px', backgroundColor: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center' }, // YENİ
+  btnImport: { padding: '10px 18px', backgroundColor: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center' },
   btnGhost: { padding: '10px 18px', backgroundColor: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   error: { backgroundColor: '#fee2e2', color: '#b91c1c', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px' },
   success: { backgroundColor: '#dcfce7', color: '#166534', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px' },
