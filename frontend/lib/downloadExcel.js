@@ -11,9 +11,9 @@ export async function downloadExcelFile({ url, token, defaultFilename = 'export.
     try {
       const data = await response.json();
       message = data?.error || message;
-    } catch (error) {}
-    throw new Error(message);
-  }
+    catch (err) {
+  console.error("Excel indirme hatası:", err);
+}
 
   const blob = await response.blob();
   const contentDisposition = response.headers.get('content-disposition') || '';
