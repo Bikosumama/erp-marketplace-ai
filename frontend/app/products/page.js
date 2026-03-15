@@ -36,12 +36,11 @@ export default function ProductsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const [tab, setTab] = useState('list'); // 'list' | 'form' | 'import'
+  const [tab, setTab] = useState('list');
   const [editProduct, setEditProduct] = useState(null);
   const [form, setForm] = useState(emptyForm);
-  const [formTab, setFormTab] = useState('general'); // 'general' | 'pricing' | 'marketplaces'
+  const [formTab, setFormTab] = useState('general');
 
-  // Import state
   const [importFile, setImportFile] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
   const [importMapping, setImportMapping] = useState({});
@@ -199,7 +198,6 @@ export default function ProductsPage() {
     }
   };
 
-  // Import handlers
   const handleImportPreview = async () => {
     if (!importFile) return;
     setError('');
@@ -231,18 +229,52 @@ export default function ProductsPage() {
     if (!importFile) return;
     setImporting(true);
     setError('');
-    const fd = new FormData();
-    fd.append('file', importFile);
-    fd.append('mapping', JSON.stringify(importMapping));
+    setImportResult(null);
+
+    const BATCH_SIZE = 100;
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalErrors = [];
+    let offset = 0;
+    let hasMore = true;
+
     try {
-      const res = await fetch(`${API_URL}/api/products/import/commit`, {
-        method: 'POST',
-        headers: authHeader(),
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || 'İçe aktarma başarısız'); return; }
-      setImportResult(data);
+      while (hasMore) {
+        const fd = new FormData();
+        fd.append('file', importFile);
+        fd.append('mapping', JSON.stringify(importMapping));
+        fd.append('offset', String(offset));
+        fd.append('limit', String(BATCH_SIZE));
+
+        const res = await fetch(`${API_URL}/api/products/import/commit`, {
+          method: 'POST',
+          headers: authHeader(),
+          body: fd,
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'İçe aktarma başarısız');
+          return;
+        }
+
+        totalCreated += data.created || 0;
+        totalUpdated += data.updated || 0;
+        totalErrors = [...totalErrors, ...(data.errors || [])];
+
+        const processedCount = (data.created || 0) + (data.updated || 0) + (data.errors?.length || 0);
+        hasMore = processedCount >= BATCH_SIZE;
+        offset += BATCH_SIZE;
+
+        setImportResult({
+          created: totalCreated,
+          updated: totalUpdated,
+          errors: totalErrors,
+          inProgress: hasMore,
+          offset,
+        });
+      }
+
       fetchAll();
     } catch {
       setError('İçe aktarma başarısız');
@@ -260,7 +292,6 @@ export default function ProductsPage() {
     <>
       <Navigation />
       <main style={s.main}>
-        {/* Header */}
         <div style={s.header}>
           <h1 style={s.heading}>📦 Ürünler</h1>
           <div style={s.headerBtns}>
@@ -272,7 +303,6 @@ export default function ProductsPage() {
         {error && <div style={s.error}>{error} <button onClick={() => setError('')} style={s.clearBtn}>✕</button></div>}
         {success && <div style={s.successBox}>{success} <button onClick={() => setSuccess('')} style={s.clearBtn}>✕</button></div>}
 
-        {/* Tab switcher */}
         <div style={s.tabs}>
           {['list','form','import'].map((t) => (
             <button key={t} onClick={() => setTab(t)} style={tab === t ? s.activeTab : s.tabBtn}>
@@ -281,7 +311,6 @@ export default function ProductsPage() {
           ))}
         </div>
 
-        {/* LIST TAB */}
         {tab === 'list' && (
           fetching ? (
             <div style={s.loading}>Ürünler yükleniyor...</div>
@@ -308,7 +337,7 @@ export default function ProductsPage() {
                       <td style={s.td}>{p.cost ? `${p.cost} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.sale_price ? `${p.sale_price} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.currency || 'TRY'}</td>
-      <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
+                      <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
                       <td style={s.td}>
                         <span style={p.status === 'active' ? s.badgeActive : s.badgePassive}>
                           {p.status === 'active' ? 'Aktif' : 'Pasif'}
@@ -326,7 +355,6 @@ export default function ProductsPage() {
           )
         )}
 
-        {/* FORM TAB */}
         {tab === 'form' && (
           <div style={s.card}>
             <div style={s.formTabs}>
@@ -334,82 +362,48 @@ export default function ProductsPage() {
                 <button key={t} onClick={() => setFormTab(t)} style={formTab === t ? s.activeFormTab : s.formTabBtn}>{label}</button>
               ))}
             </div>
-
             <form onSubmit={handleSave}>
-              {/* GENERAL */}
               {formTab === 'general' && (
                 <div style={s.grid2}>
-                  <label style={s.label}>
-                    Stok Kodu *
-                    <input required value={form.stock_code} onChange={(e) => handleFormChange('stock_code', e.target.value)} style={s.input} placeholder="STK-0001" />
-                  </label>
-                  <label style={s.label}>
-                    Ürün Adı *
-                    <input required value={form.name} onChange={(e) => handleFormChange('name', e.target.value)} style={s.input} placeholder="Ürün adı" />
-                  </label>
-                  <label style={s.label}>
-                    Barkod (EAN/GTIN)
-                    <input value={form.barcode} onChange={(e) => handleFormChange('barcode', e.target.value)} style={s.input} placeholder="8690000000001" />
-                  </label>
-                  <label style={s.label}>
-                    Marka
+                  <label style={s.label}>Stok Kodu *<input required value={form.stock_code} onChange={(e) => handleFormChange('stock_code', e.target.value)} style={s.input} placeholder="STK-0001" /></label>
+                  <label style={s.label}>Ürün Adı *<input required value={form.name} onChange={(e) => handleFormChange('name', e.target.value)} style={s.input} placeholder="Ürün adı" /></label>
+                  <label style={s.label}>Barkod (EAN/GTIN)<input value={form.barcode} onChange={(e) => handleFormChange('barcode', e.target.value)} style={s.input} placeholder="8690000000001" /></label>
+                  <label style={s.label}>Marka
                     <select value={form.brand_id} onChange={(e) => handleFormChange('brand_id', e.target.value)} style={s.input}>
                       <option value="">— Marka seçin —</option>
                       {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </label>
-                  <label style={s.label}>
-                    Kategori
+                  <label style={s.label}>Kategori
                     <select value={form.category_id} onChange={(e) => handleFormChange('category_id', e.target.value)} style={s.input}>
                       <option value="">— Kategori seçin —</option>
-                      {categoryTree.map((item) => (
-                        <option key={item.id} value={item.id}>{item.label}</option>
-                      ))}
+                      {categoryTree.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                     </select>
                   </label>
-                  <label style={s.label}>
-                    Durum
+                  <label style={s.label}>Durum
                     <select value={form.status} onChange={(e) => handleFormChange('status', e.target.value)} style={s.input}>
                       <option value="active">Aktif</option>
                       <option value="passive">Pasif</option>
                     </select>
                   </label>
-                  <label style={{ ...s.label, gridColumn: '1 / -1' }}>
-                    Açıklama
+                  <label style={{ ...s.label, gridColumn: '1 / -1' }}>Açıklama
                     <textarea value={form.description} onChange={(e) => handleFormChange('description', e.target.value)} style={{ ...s.input, minHeight: '80px', resize: 'vertical' }} placeholder="Ürün açıklaması" />
                   </label>
                 </div>
               )}
-
-              {/* PRICING */}
               {formTab === 'pricing' && (
                 <div style={s.grid2}>
-                  <label style={s.label}>
-                    Maliyet
-                    <input type="number" step="0.0001" min="0" value={form.cost} onChange={(e) => handleFormChange('cost', e.target.value)} style={s.input} placeholder="0.00" />
-                  </label>
-                  <label style={s.label}>
-                    Satış Fiyatı
-                    <input type="number" step="0.0001" min="0" value={form.sale_price} onChange={(e) => handleFormChange('sale_price', e.target.value)} style={s.input} placeholder="0.00" />
-                  </label>
-                  <label style={s.label}>
-                    Liste Fiyatı
-                    <input type="number" step="0.0001" min="0" value={form.list_price} onChange={(e) => handleFormChange('list_price', e.target.value)} style={s.input} placeholder="0.00" />
-                  </label>
-                  <label style={s.label}>
-                    Para Birimi
+                  <label style={s.label}>Maliyet<input type="number" step="0.0001" min="0" value={form.cost} onChange={(e) => handleFormChange('cost', e.target.value)} style={s.input} placeholder="0.00" /></label>
+                  <label style={s.label}>Satış Fiyatı<input type="number" step="0.0001" min="0" value={form.sale_price} onChange={(e) => handleFormChange('sale_price', e.target.value)} style={s.input} placeholder="0.00" /></label>
+                  <label style={s.label}>Liste Fiyatı<input type="number" step="0.0001" min="0" value={form.list_price} onChange={(e) => handleFormChange('list_price', e.target.value)} style={s.input} placeholder="0.00" /></label>
+                  <label style={s.label}>Para Birimi
                     <select value={form.currency} onChange={(e) => handleFormChange('currency', e.target.value)} style={s.input}>
                       {['TRY','USD','EUR','GBP'].map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
-                  <label style={s.label}>
-                    KDV Oranı (%)
-                    <input type="number" step="0.01" min="0" max="100" value={form.vat_rate} onChange={(e) => handleFormChange('vat_rate', e.target.value)} style={s.input} placeholder="18" />
-                  </label>
+                  <label style={s.label}>KDV Oranı (%)<input type="number" step="0.01" min="0" max="100" value={form.vat_rate} onChange={(e) => handleFormChange('vat_rate', e.target.value)} style={s.input} placeholder="18" /></label>
                 </div>
               )}
-
-              {/* MARKETPLACES */}
               {formTab === 'marketplaces' && (
                 <div>
                   {form.marketplace_identifiers.map((mi, idx) => (
@@ -427,7 +421,6 @@ export default function ProductsPage() {
                   <button type="button" onClick={addMI} style={s.addMIBtn}>+ Pazaryeri Ekle</button>
                 </div>
               )}
-
               <div style={s.formActions}>
                 <button type="submit" style={s.submitBtn}>{editProduct ? '💾 Güncelle' : '✅ Kaydet'}</button>
                 <button type="button" onClick={() => setTab('list')} style={s.cancelBtn}>İptal</button>
@@ -436,17 +429,14 @@ export default function ProductsPage() {
           </div>
         )}
 
-        {/* IMPORT TAB */}
         {tab === 'import' && (
           <div style={s.card}>
             <h2 style={s.sectionTitle}>📥 Excel / CSV İçe Aktar</h2>
             <p style={s.hint}>Desteklenen formatlar: .xlsx, .xls, .csv — Zorunlu kolonlar: <b>stock_code</b>, <b>name</b></p>
-
             <div style={s.importSection}>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { setImportFile(e.target.files[0]); setImportPreview(null); setImportResult(null); }} style={s.fileInput} />
               <button onClick={handleImportPreview} disabled={!importFile} style={s.btn}>🔍 Önizle</button>
             </div>
-
             {importPreview && (
               <div>
                 <h3 style={s.subTitle}>Kolon Eşleme</h3>
@@ -464,18 +454,13 @@ export default function ProductsPage() {
                   ].map(([field, label]) => (
                     <label key={field} style={s.mappingLabel}>
                       <span style={s.mappingFieldName}>{label}</span>
-                      <select
-                        value={importMapping[field] || ''}
-                        onChange={(e) => setImportMapping((m) => ({ ...m, [field]: e.target.value }))}
-                        style={s.input}
-                      >
+                      <select value={importMapping[field] || ''} onChange={(e) => setImportMapping((m) => ({ ...m, [field]: e.target.value }))} style={s.input}>
                         <option value="">— eşleme yok —</option>
                         {importPreview.headers.map((h) => <option key={h} value={h}>{h}</option>)}
                       </select>
                     </label>
                   ))}
                 </div>
-
                 <h3 style={s.subTitle}>Örnek Satırlar</h3>
                 <div style={s.tableWrap}>
                   <table style={s.table}>
@@ -491,15 +476,16 @@ export default function ProductsPage() {
                     </tbody>
                   </table>
                 </div>
-
                 <button onClick={handleImportCommit} disabled={importing} style={{ ...s.btn, marginTop: '16px' }}>
-                  {importing ? 'İçe aktarılıyor...' : '⬆ İçe Aktar'}
+                  {importing ? `⏳ İçe aktarılıyor... (${importResult?.offset || 0} / işlendi)` : '⬆ İçe Aktar'}
                 </button>
               </div>
             )}
-
             {importResult && (
               <div style={s.importResult}>
+                {importResult.inProgress && (
+                  <div style={{ marginBottom: '8px' }}>⏳ İçe aktarılıyor... ({importResult.offset} satır işlendi)</div>
+                )}
                 <strong>Sonuç:</strong> {importResult.created} oluşturuldu, {importResult.updated} güncellendi.
                 {importResult.errors?.length > 0 && (
                   <div style={s.importErrors}>
@@ -575,4 +561,3 @@ const s = {
   importResult: { marginTop: '16px', padding: '14px', backgroundColor: '#d1fae5', color: '#065f46', borderRadius: '8px', fontSize: '14px' },
   importErrors: { marginTop: '8px', padding: '10px', backgroundColor: '#fee2e2', color: '#dc2626', borderRadius: '6px', fontSize: '13px' },
 };
-
