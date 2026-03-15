@@ -27,8 +27,8 @@ export default function OrdersPage() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (user && token) fetchOrders();
-  }, [user, token]);
+  fetchOrders();
+  }, [fetchOrders]);
 
   const fetchOrders = async () => {
     setFetching(true);
