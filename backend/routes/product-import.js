@@ -8,7 +8,7 @@ const authMiddleware = require('../middleware/auth');
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowed = [
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -24,9 +24,27 @@ const upload = multer({
   },
 });
 
+// ✅ Türkçe dahil sayı formatlarını güvenli parse eder
+function safeParseFloat(value) {
+  if (!value && value !== 0) return null;
+  // "1.234,56" → "1234.56"
+  const cleaned = String(value).replace(/\./g, '').replace(',', '.');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+// ✅ Status değerini normalize eder
+function normalizeStatus(value) {
+  const map = {
+    aktif: 'active', active: 'active',
+    pasif: 'inactive', inactive: 'inactive', pasifleştirildi: 'inactive',
+    taslak: 'draft', draft: 'draft',
+  };
+  return map[String(value || '').toLowerCase().trim()] || 'active';
+}
+
 async function parseFile(file) {
   const isCSV = file.originalname.match(/\.csv$/i) || file.mimetype === 'text/csv' || file.mimetype === 'text/plain';
-
   const workbook = new ExcelJS.Workbook();
 
   if (isCSV) {
@@ -58,8 +76,57 @@ async function parseFile(file) {
   return { headers, rows };
 }
 
+// ✅ Marka bul veya oluştur
+async function resolveBrand(client, brandName) {
+  if (!brandName?.trim()) return null;
+  const name = brandName.trim();
+
+  // Önce bul
+  const existing = await client.query(
+    'SELECT id FROM brands WHERE LOWER(name) = LOWER($1)', [name]
+  );
+  if (existing.rows.length > 0) return existing.rows[0].id;
+
+  // Yoksa oluştur
+  const inserted = await client.query(
+    'INSERT INTO brands (name) VALUES ($1) RETURNING id', [name]
+  );
+  return inserted.rows[0].id;
+}
+
+// ✅ Kategori yolunu bul veya oluştur - NULL parent_id sorununu çözer
+async function resolveCategory(client, categoryPath) {
+  if (!categoryPath?.trim()) return null;
+
+  const parts = categoryPath.split('>').map((p) => p.trim()).filter(Boolean);
+  let parentId = null;
+  let categoryId = null;
+
+  for (const part of parts) {
+    // NULL parent_id için IS NULL kullan
+    const existing = await client.query(
+      `SELECT id FROM categories 
+       WHERE LOWER(name) = LOWER($1) 
+       AND ($2::int IS NULL AND parent_id IS NULL OR parent_id = $2)`,
+      [part, parentId]
+    );
+
+    if (existing.rows.length > 0) {
+      categoryId = existing.rows[0].id;
+    } else {
+      const inserted = await client.query(
+        'INSERT INTO categories (name, parent_id) VALUES ($1, $2) RETURNING id',
+        [part, parentId]
+      );
+      categoryId = inserted.rows[0].id;
+    }
+    parentId = categoryId;
+  }
+
+  return categoryId;
+}
+
 // POST /api/products/import/preview
-// Accept file upload and return detected columns + sample rows
 router.post('/preview', authMiddleware, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Dosya gerekli' });
@@ -71,7 +138,6 @@ router.post('/preview', authMiddleware, upload.single('file'), async (req, res) 
 });
 
 // POST /api/products/import/commit
-// Accept mapping + file and write to DB
 router.post('/commit', authMiddleware, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Dosya gerekli' });
@@ -83,8 +149,8 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
       return res.status(400).json({ error: 'Geçersiz mapping JSON formatı' });
     }
 
+    const isCSV = req.file.originalname.match(/\.csv$/i) || req.file.mimetype === 'text/csv';
     const workbook = new ExcelJS.Workbook();
-    const isCSV = req.file.originalname.match(/\.csv$/i) || req.file.mimetype === 'text/csv' || req.file.mimetype === 'text/plain';
 
     if (isCSV) {
       const stream = Readable.from(req.file.buffer.toString('utf-8'));
@@ -112,12 +178,16 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
       }
     });
 
+    // ✅ Satır limiti - 5000 satır üstü reddedilir
+    if (dataRows.length > 5000) {
+      return res.status(400).json({ error: 'Maksimum 5000 satır import edilebilir' });
+    }
+
     const get = (row, field) => {
       if (!mapping[field]) return '';
       return (row[mapping[field]] || '').trim();
     };
 
-    // Collect marketplace column mappings (keys like "marketplace_<id>_barcode", "marketplace_<id>_sku")
     const marketplaceMappings = [];
     for (const [key, colName] of Object.entries(mapping)) {
       const m = key.match(/^marketplace_(\d+)_(barcode|sku)$/);
@@ -142,33 +212,9 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
         try {
           await client.query('BEGIN');
 
-          // Resolve brand
-          let brand_id = null;
-          const brandName = get(row, 'brand');
-          if (brandName) {
-            const bRes = await client.query(
-              'INSERT INTO brands (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id',
-              [brandName]
-            );
-            brand_id = bRes.rows[0].id;
-          }
-
-          // Resolve category path
-          let category_id = null;
-          const categoryPath = get(row, 'category_path');
-          if (categoryPath) {
-            const parts = categoryPath.split('>').map((p) => p.trim()).filter(Boolean);
-            let parentId = null;
-            for (const part of parts) {
-              const cRes = await client.query(
-                `INSERT INTO categories (name, parent_id) VALUES ($1, $2)
-                 ON CONFLICT (name, parent_id) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
-                [part, parentId]
-              );
-              parentId = cRes.rows[0].id;
-              category_id = parentId;
-            }
-          }
+          // ✅ Marka ve kategori güvenli şekilde çözümleniyor
+          const brand_id = await resolveBrand(client, get(row, 'brand'));
+          const category_id = await resolveCategory(client, get(row, 'category_path'));
 
           const fields = {
             stock_code,
@@ -177,15 +223,17 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
             barcode: get(row, 'barcode') || null,
             brand_id,
             category_id,
-            cost: get(row, 'cost') ? parseFloat(get(row, 'cost')) : null,
-            sale_price: get(row, 'sale_price') ? parseFloat(get(row, 'sale_price')) : null,
-            list_price: get(row, 'list_price') ? parseFloat(get(row, 'list_price')) : null,
+            cost: safeParseFloat(get(row, 'cost')),           // ✅ Türkçe sayı formatı
+            sale_price: safeParseFloat(get(row, 'sale_price')),
+            list_price: safeParseFloat(get(row, 'list_price')),
             currency: get(row, 'currency') || 'TRY',
-            vat_rate: get(row, 'vat_rate') ? parseFloat(get(row, 'vat_rate')) : 18,
-            status: get(row, 'status') || 'active',
+            vat_rate: safeParseFloat(get(row, 'vat_rate')) ?? 18,
+            status: normalizeStatus(get(row, 'status')),       // ✅ Status normalize
           };
 
-          const existing = await client.query('SELECT id FROM products WHERE stock_code = $1', [stock_code]);
+          const existing = await client.query(
+            'SELECT id FROM products WHERE stock_code = $1', [stock_code]
+          );
 
           let productId;
           if (existing.rows.length > 0) {
@@ -219,7 +267,6 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
             results.created++;
           }
 
-          // Handle marketplace identifiers
           for (const mp of marketplaceMappings) {
             const value = (row[mp.colName] || '').trim();
             if (!value) continue;
