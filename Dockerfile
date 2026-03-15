@@ -4,4 +4,4 @@ COPY backend/package*.json ./
 RUN npm install
 COPY backend/ .
 EXPOSE 5000
-CMD ["node", "migrations/init.js", "&&", "node", "server.js"]
+CMD ["sh", "-c", "node migrations/init.js && node server.js"]
