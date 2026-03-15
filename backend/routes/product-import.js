@@ -24,20 +24,17 @@ const upload = multer({
   },
 });
 
-// ✅ Türkçe dahil sayı formatlarını güvenli parse eder
 function safeParseFloat(value) {
   if (!value && value !== 0) return null;
-  // "1.234,56" → "1234.56"
   const cleaned = String(value).replace(/\./g, '').replace(',', '.');
   const num = parseFloat(cleaned);
   return isNaN(num) ? null : num;
 }
 
-// ✅ Status değerini normalize eder
 function normalizeStatus(value) {
   const map = {
     aktif: 'active', active: 'active',
-    pasif: 'inactive', inactive: 'inactive', pasifleştirildi: 'inactive',
+    pasif: 'inactive', inactive: 'inactive',
     taslak: 'draft', draft: 'draft',
   };
   return map[String(value || '').toLowerCase().trim()] || 'active';
@@ -46,20 +43,16 @@ function normalizeStatus(value) {
 async function parseFile(file) {
   const isCSV = file.originalname.match(/\.csv$/i) || file.mimetype === 'text/csv' || file.mimetype === 'text/plain';
   const workbook = new ExcelJS.Workbook();
-
   if (isCSV) {
     const stream = Readable.from(file.buffer.toString('utf-8'));
     await workbook.csv.read(stream);
   } else {
     await workbook.xlsx.load(file.buffer);
   }
-
   const worksheet = workbook.worksheets[0];
   if (!worksheet) throw new Error('Dosyada sayfa bulunamadı');
-
   const headers = [];
   const rows = [];
-
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) {
       row.eachCell((cell) => headers.push(String(cell.value || '').trim()));
@@ -72,45 +65,30 @@ async function parseFile(file) {
       rows.push(rowData);
     }
   });
-
   return { headers, rows };
 }
 
-// ✅ Marka bul veya oluştur
 async function resolveBrand(client, brandName) {
   if (!brandName?.trim()) return null;
   const name = brandName.trim();
-
-  // Önce bul
-  const existing = await client.query(
-    'SELECT id FROM brands WHERE LOWER(name) = LOWER($1)', [name]
-  );
+  const existing = await client.query('SELECT id FROM brands WHERE LOWER(name) = LOWER($1)', [name]);
   if (existing.rows.length > 0) return existing.rows[0].id;
-
-  // Yoksa oluştur
-  const inserted = await client.query(
-    'INSERT INTO brands (name) VALUES ($1) RETURNING id', [name]
-  );
+  const inserted = await client.query('INSERT INTO brands (name) VALUES ($1) RETURNING id', [name]);
   return inserted.rows[0].id;
 }
 
-// ✅ Kategori yolunu bul veya oluştur - NULL parent_id sorununu çözer
 async function resolveCategory(client, categoryPath) {
   if (!categoryPath?.trim()) return null;
-
   const parts = categoryPath.split('>').map((p) => p.trim()).filter(Boolean);
   let parentId = null;
   let categoryId = null;
-
   for (const part of parts) {
-    // NULL parent_id için IS NULL kullan
     const existing = await client.query(
       `SELECT id FROM categories 
        WHERE LOWER(name) = LOWER($1) 
        AND ($2::int IS NULL AND parent_id IS NULL OR parent_id = $2)`,
       [part, parentId]
     );
-
     if (existing.rows.length > 0) {
       categoryId = existing.rows[0].id;
     } else {
@@ -122,7 +100,6 @@ async function resolveCategory(client, categoryPath) {
     }
     parentId = categoryId;
   }
-
   return categoryId;
 }
 
@@ -149,9 +126,11 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
       return res.status(400).json({ error: 'Geçersiz mapping JSON formatı' });
     }
 
+    const offset = parseInt(req.body.offset || '0', 10);
+    const limit = parseInt(req.body.limit || '5000', 10);
+
     const isCSV = req.file.originalname.match(/\.csv$/i) || req.file.mimetype === 'text/csv';
     const workbook = new ExcelJS.Workbook();
-
     if (isCSV) {
       const stream = Readable.from(req.file.buffer.toString('utf-8'));
       await workbook.csv.read(stream);
@@ -164,7 +143,6 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
 
     const headers = [];
     const dataRows = [];
-
     worksheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) {
         row.eachCell((cell) => headers.push(String(cell.value || '').trim()));
@@ -178,10 +156,8 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
       }
     });
 
-    // ✅ Satır limiti - 5000 satır üstü reddedilir
-    if (dataRows.length > 5000) {
-      return res.status(400).json({ error: 'Maksimum 5000 satır import edilebilir' });
-    }
+    // ✅ Batch: sadece offset-limit aralığını işle
+    const batchRows = dataRows.slice(offset, offset + limit);
 
     const get = (row, field) => {
       if (!mapping[field]) return '';
@@ -200,19 +176,18 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
     const results = { created: 0, updated: 0, errors: [] };
 
     try {
-      for (const [rowIdx, row] of dataRows.entries()) {
+      for (const [rowIdx, row] of batchRows.entries()) {
         const stock_code = get(row, 'stock_code');
         const name = get(row, 'name');
 
         if (!stock_code || !name) {
-          results.errors.push({ row: rowIdx + 2, error: 'stock_code ve name zorunlu' });
+          results.errors.push({ row: offset + rowIdx + 2, error: 'stock_code ve name zorunlu' });
           continue;
         }
 
         try {
           await client.query('BEGIN');
 
-          // ✅ Marka ve kategori güvenli şekilde çözümleniyor
           const brand_id = await resolveBrand(client, get(row, 'brand'));
           const category_id = await resolveCategory(client, get(row, 'category_path'));
 
@@ -223,17 +198,15 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
             barcode: get(row, 'barcode') || null,
             brand_id,
             category_id,
-            cost: safeParseFloat(get(row, 'cost')),           // ✅ Türkçe sayı formatı
+            cost: safeParseFloat(get(row, 'cost')),
             sale_price: safeParseFloat(get(row, 'sale_price')),
             list_price: safeParseFloat(get(row, 'list_price')),
             currency: get(row, 'currency') || 'TRY',
             vat_rate: safeParseFloat(get(row, 'vat_rate')) ?? 18,
-            status: normalizeStatus(get(row, 'status')),       // ✅ Status normalize
+            status: normalizeStatus(get(row, 'status')),
           };
 
-          const existing = await client.query(
-            'SELECT id FROM products WHERE stock_code = $1', [stock_code]
-          );
+          const existing = await client.query('SELECT id FROM products WHERE stock_code = $1', [stock_code]);
 
           let productId;
           if (existing.rows.length > 0) {
@@ -275,18 +248,14 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
                 INSERT INTO product_marketplace_identifiers (product_id, marketplace_id, marketplace_barcode)
                 VALUES ($1,$2,$3)
                 ON CONFLICT (marketplace_id, marketplace_barcode) DO UPDATE SET
-                  product_id = EXCLUDED.product_id,
-                  is_active = TRUE,
-                  updated_at = NOW()
+                  product_id = EXCLUDED.product_id, is_active = TRUE, updated_at = NOW()
               `, [productId, mp.marketplace_id, value]);
             } else if (mp.field === 'sku') {
               await client.query(`
                 INSERT INTO product_marketplace_identifiers (product_id, marketplace_id, marketplace_sku)
                 VALUES ($1,$2,$3)
                 ON CONFLICT (marketplace_id, marketplace_sku) DO UPDATE SET
-                  product_id = EXCLUDED.product_id,
-                  is_active = TRUE,
-                  updated_at = NOW()
+                  product_id = EXCLUDED.product_id, is_active = TRUE, updated_at = NOW()
               `, [productId, mp.marketplace_id, value]);
             }
           }
@@ -294,7 +263,7 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
           await client.query('COMMIT');
         } catch (rowError) {
           await client.query('ROLLBACK');
-          results.errors.push({ row: rowIdx + 2, error: rowError.message });
+          results.errors.push({ row: offset + rowIdx + 2, error: rowError.message });
         }
       }
     } finally {
@@ -302,7 +271,7 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
     }
 
     res.json({
-      message: 'İçe aktarma tamamlandı',
+      message: 'Batch tamamlandı',
       created: results.created,
       updated: results.updated,
       errors: results.errors,
