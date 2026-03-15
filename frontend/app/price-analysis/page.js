@@ -157,7 +157,6 @@ export default function PriceAnalysisPage() {
     }
   };
 
-  // --- EXCEL IMPORT (YENİ) ---
   const handleImportExcel = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -172,7 +171,7 @@ export default function PriceAnalysisPage() {
     try {
       const res = await fetch(`${API_URL}/api/price-analysis/import-and-analyze`, {
         method: 'POST',
-        headers: { ...authHeader() }, // formData ile gönderdiğimiz için Content-Type tarayıcıya bırakılır
+        headers: { ...authHeader() },
         body: formData,
       });
 
@@ -185,7 +184,7 @@ export default function PriceAnalysisPage() {
       setError(err.message || 'Excel dosyası işlenirken bir hata oluştu.');
     } finally {
       setImportingExcel(false);
-      e.target.value = null; // Aynı dosyayı tekrar seçebilmek için temizle
+      e.target.value = null;
     }
   };
 
@@ -223,14 +222,10 @@ export default function PriceAnalysisPage() {
             <h1 style={styles.heading}>RadarAnaliz / Fiyat Analizi</h1>
             <p style={styles.subheading}>Ürün bazlı öneriler ve toplu işlemler tek ekranda.</p>
           </div>
-          
-          {/* SAĞ ÜST BUTONLARIN OLDUĞU ALAN */}
           <div style={styles.headerActions}>
             <button onClick={() => handleAnalyze(selectedProductId)} style={styles.btnPrimary} disabled={analyzing}>
               {analyzing ? 'Analiz çalışıyor...' : selectedProductId ? 'Seçili ürünü analiz et' : 'Toplu analizi başlat'}
             </button>
-            
-            {/* EXCEL IMPORT BUTONU BURADA */}
             <label style={{...styles.btnImport, opacity: importingExcel ? 0.7 : 1}}>
               {importingExcel ? 'Yükleniyor...' : 'Excel ile Analiz Yükle'}
               <input 
@@ -242,11 +237,9 @@ export default function PriceAnalysisPage() {
                 disabled={importingExcel}
               />
             </label>
-
             <button onClick={handleExportExcel} style={styles.btnExcel} disabled={downloadingExcel || visibleRecommendations.length === 0}>
               {downloadingExcel ? 'Excel hazırlanıyor...' : 'Excel Aktar'}
             </button>
-            
             <button onClick={() => fetchAll()} style={styles.btnSecondary}>Yenile</button>
           </div>
         </div>
