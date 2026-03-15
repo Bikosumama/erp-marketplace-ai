@@ -22,8 +22,8 @@ export default function MarketplacesPage() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (user && token) fetchMarketplaces();
-  }, [user, token]);
+  fetchMarketplaces();
+  }, [fetchMarketplaces]);
 
   const fetchMarketplaces = async () => {
     setFetching(true);
