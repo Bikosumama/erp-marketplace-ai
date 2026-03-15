@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
+import { downloadExcelFile } from '../../lib/downloadExcel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -36,6 +37,7 @@ export default function PriceAnalysisPage() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [applyStatus, setApplyStatus] = useState({});
   const [analyzing, setAnalyzing] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
   const [rejectingId, setRejectingId] = useState(null);
 
   useEffect(() => {
@@ -177,6 +179,32 @@ export default function PriceAnalysisPage() {
 
   const visibleRecommendations = useMemo(() => recommendations, [recommendations]);
 
+  const handleExportExcel = async () => {
+    if (!token) {
+      setError('Oturum bulunamadı. Lütfen tekrar giriş yapın.');
+      return;
+    }
+
+    setDownloadingExcel(true);
+    setError('');
+
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (selectedProductId) params.set('product_id', selectedProductId);
+
+      await downloadExcelFile({
+        url: `${API_URL}/api/price-analysis/export?${params.toString()}`,
+        token,
+        defaultFilename: 'price-analysis.xlsx',
+      });
+    } catch (err) {
+      setError(err.message || 'Excel dışa aktarma sırasında hata oluştu');
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   if (loading) return <div style={styles.loading}>Yükleniyor...</div>;
   if (!user) return null;
 
@@ -186,12 +214,15 @@ export default function PriceAnalysisPage() {
       <main style={styles.main}>
         <div style={styles.header}>
           <div>
-            <h1 style={styles.heading}>g��� RadarAnaliz / Fiyat Analizi</h1>
+            <h1 style={styles.heading}>RadarAnaliz / Fiyat Analizi</h1>
             <p style={styles.subheading}>Ürün bazlı öneriler, risk uyarıları ve uygulama geçmişi tek ekranda.</p>
           </div>
           <div style={styles.headerActions}>
             <button onClick={() => handleAnalyze(selectedProductId)} style={styles.btnPrimary} disabled={analyzing}>
               {analyzing ? 'Analiz çalışıyor...' : selectedProductId ? 'Seçili ürünü analiz et' : 'Toplu analizi başlat'}
+            </button>
+            <button onClick={handleExportExcel} style={styles.btnExcel} disabled={downloadingExcel || visibleRecommendations.length === 0}>
+              {downloadingExcel ? 'Excel hazırlanıyor...' : 'Excel Aktar'}
             </button>
             <button onClick={() => fetchAll()} style={styles.btnSecondary}>Yenile</button>
           </div>
@@ -436,6 +467,7 @@ const styles = {
   headerActions: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   btnPrimary: { padding: '10px 18px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   btnSecondary: { padding: '10px 18px', backgroundColor: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
+  btnExcel: { padding: '10px 18px', backgroundColor: '#065f46', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   btnGhost: { padding: '10px 18px', backgroundColor: '#e5e7eb', color: '#374151', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' },
   error: { backgroundColor: '#fee2e2', color: '#b91c1c', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px' },
   success: { backgroundColor: '#dcfce7', color: '#166534', padding: '12px 16px', borderRadius: '10px', marginBottom: '16px' },

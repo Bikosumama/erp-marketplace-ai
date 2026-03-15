@@ -3,8 +3,99 @@ const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { buildRecommendation, toNumber } = require('../services/priceAnalyzer');
+const { sendWorkbook } = require('../services/excelExport');
 
 router.use(authMiddleware);
+
+function parseRecommendationMetadata(metadata) {
+  if (!metadata) return {};
+  if (typeof metadata === 'object') return metadata;
+  try {
+    return JSON.parse(metadata);
+  } catch (error) {
+    return {};
+  }
+}
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function buildRecommendationResponseRow(row) {
+  const metadata = parseRecommendationMetadata(row.metadata);
+  return {
+    id: row.id,
+    product_id: row.product_id,
+    product_name: row.product_name,
+    stock_code: row.stock_code,
+    marketplace_id: row.marketplace_id,
+    marketplace_name: row.marketplace_name,
+    category_name: row.category_name || metadata.category_name || '',
+    purchase_price: numberOrZero(row.purchase_price),
+    current_price: numberOrZero(row.current_price),
+    recommended_price: numberOrZero(row.recommended_price),
+    floor_price: numberOrZero(row.floor_price),
+    target_price: numberOrZero(row.target_price),
+    protected_floor: numberOrZero(row.protected_floor),
+    brand_min_price: numberOrZero(row.brand_min_price || row.product_brand_min_price || metadata.brand_min_price),
+    marketplace_discount_rate: numberOrZero(row.marketplace_discount_rate || metadata.marketplace_discount_rate),
+    discount_adjusted_protected_price: numberOrZero(row.discount_adjusted_protected_price || metadata.discount_adjusted_protected_price),
+    customer_seen_price: numberOrZero(row.customer_seen_price || metadata.customer_seen_price),
+    shipping_cost: numberOrZero(row.shipping_cost || metadata.shipping_cost),
+    commission_amount: numberOrZero(row.commission_amount || metadata.commission_amount),
+    extra_deductions_total: numberOrZero(row.extra_deductions_total || metadata.extra_deductions_total),
+    competitor_price: row.competitor_price == null ? null : numberOrZero(row.competitor_price),
+    current_margin_rate: numberOrZero(row.current_margin_rate),
+    projected_margin_rate: numberOrZero(row.projected_margin_rate),
+    profit_margin: numberOrZero(row.profit_margin),
+    recommendation_type: row.recommendation_type,
+    risk_level: row.risk_level,
+    confidence: numberOrZero(row.confidence),
+    quality_score: row.quality_score,
+    reason: row.reason_text,
+    status: row.status,
+    created_at: row.created_at,
+    metadata,
+    reasons: Array.isArray(metadata.reasons) ? metadata.reasons : [],
+    pricing_rule_scope: metadata.marketplace_rule_scope || metadata.pricing_rule_scope || '',
+    shipping_rule_scope: metadata.shipping_rule_scope || '',
+    note: row.reason_text || '',
+  };
+}
+
+async function fetchRecommendationRows({ status, productId }) {
+  const params = [];
+  const where = [];
+
+  if (status) {
+    params.push(status);
+    where.push(`pr.status = $${params.length}`);
+  }
+
+  if (productId) {
+    params.push(Number(productId));
+    where.push(`pr.product_id = $${params.length}`);
+  }
+
+  const result = await pool.query(
+    `SELECT
+       pr.*, p.name AS product_name, p.stock_code, p.purchase_price,
+       p.brand_min_price AS product_brand_min_price,
+       c.name AS category_name,
+       m.marketplace_name
+     FROM price_recommendations pr
+     JOIN products p ON p.id = pr.product_id
+     LEFT JOIN marketplaces m ON m.id = pr.marketplace_id
+     LEFT JOIN categories c ON c.id = p.category_id
+     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY pr.created_at DESC, pr.id DESC
+     LIMIT 1000`,
+    params
+  );
+
+  return result.rows.map(buildRecommendationResponseRow);
+}
 
 async function getMarketplaceIdForProduct(productId, preferredMarketplaceId = null) {
   if (preferredMarketplaceId) return Number(preferredMarketplaceId);
@@ -256,55 +347,77 @@ router.get('/summary', async (req, res) => {
 
 router.get('/recommendations', async (req, res) => {
   try {
-    const { status, product_id } = req.query;
-    const params = [];
-    const where = [];
-
-    if (status) {
-      params.push(status);
-      where.push(`pr.status = $${params.length}`);
-    }
-
-    if (product_id) {
-      params.push(Number(product_id));
-      where.push(`pr.product_id = $${params.length}`);
-    }
-
-    const result = await pool.query(
-      `SELECT pr.*, p.name AS product_name, p.stock_code, m.marketplace_name
-       FROM price_recommendations pr
-       JOIN products p ON p.id = pr.product_id
-       LEFT JOIN marketplaces m ON m.id = pr.marketplace_id
-       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-       ORDER BY pr.created_at DESC, pr.id DESC
-       LIMIT 200`,
-      params
-    );
-
-    const recommendations = result.rows.map((row) => ({
-      id: row.id,
-      product_id: row.product_id,
-      product_name: row.product_name,
-      stock_code: row.stock_code,
-      marketplace_id: row.marketplace_id,
-      marketplace_name: row.marketplace_name,
-      current_price: Number(row.current_price),
-      recommended_price: Number(row.recommended_price),
-      floor_price: Number(row.floor_price),
-      target_price: Number(row.target_price),
-      competitor_price: row.competitor_price == null ? null : Number(row.competitor_price),
-      current_margin_rate: Number(row.current_margin_rate),
-      projected_margin_rate: Number(row.projected_margin_rate),
-      recommendation_type: row.recommendation_type,
-      risk_level: row.risk_level,
-      confidence: Number(row.confidence),
-      quality_score: row.quality_score,
-      reason: row.reason_text,
-      status: row.status,
-      created_at: row.created_at,
-    }));
+    const recommendations = await fetchRecommendationRows({
+      status: req.query.status,
+      productId: req.query.product_id,
+    });
 
     res.json({ recommendations });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/export', async (req, res) => {
+  try {
+    const recommendations = await fetchRecommendationRows({
+      status: req.query.status,
+      productId: req.query.product_id,
+    });
+
+    if (!recommendations.length) {
+      return res.status(404).json({ error: 'Dışa aktarılacak analiz kaydı bulunamadı' });
+    }
+
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    const filename = `price-analysis-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}.xlsx`;
+
+    await sendWorkbook(res, {
+      filename,
+      sheets: [
+        {
+          name: 'Fiyat Analizi',
+          columns: [
+            { header: 'Ürün ID', key: 'product_id', width: 10 },
+            { header: 'Stok Kodu', key: 'stock_code', width: 18 },
+            { header: 'Ürün Adı', key: 'product_name', width: 32 },
+            { header: 'Pazaryeri', key: 'marketplace_name', width: 16 },
+            { header: 'Kategori', key: 'category_name', width: 18 },
+            { header: 'Alış Fiyatı', key: 'purchase_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Güncel Fiyat', key: 'current_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Önerilen Fiyat', key: 'recommended_price', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'Floor Price', key: 'floor_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Target Price', key: 'target_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Marka Min Fiyat', key: 'brand_min_price', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'Protected Floor', key: 'protected_floor', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'Pazaryeri İndirim %', key: 'marketplace_discount_rate', width: 18, style: { numFmt: '0.00' } },
+            { header: 'Discount Adjusted Protected Price', key: 'discount_adjusted_protected_price', width: 28, style: { numFmt: '#,##0.00' } },
+            { header: 'Customer Seen Price', key: 'customer_seen_price', width: 18, style: { numFmt: '#,##0.00' } },
+            { header: 'Rakip Fiyat', key: 'competitor_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Kargo', key: 'shipping_cost', width: 12, style: { numFmt: '#,##0.00' } },
+            { header: 'Komisyon', key: 'commission_amount', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Ek Kesintiler', key: 'extra_deductions_total', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'Mevcut Marj %', key: 'current_margin_rate', width: 14, style: { numFmt: '0.00' } },
+            { header: 'Beklenen Marj %', key: 'projected_margin_rate', width: 16, style: { numFmt: '0.00' } },
+            { header: 'Projected Profit', key: 'profit_margin', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'Öneri Tipi', key: 'recommendation_type', width: 14 },
+            { header: 'Risk', key: 'risk_level', width: 12 },
+            { header: 'Güven', key: 'confidence', width: 10, style: { numFmt: '0.00' } },
+            { header: 'Kalite Skoru', key: 'quality_score', width: 12 },
+            { header: 'Fiyat Kuralı Scope', key: 'pricing_rule_scope', width: 18 },
+            { header: 'Kargo Kuralı Scope', key: 'shipping_rule_scope', width: 18 },
+            { header: 'Durum', key: 'status', width: 12 },
+            { header: 'Not', key: 'note', width: 42 },
+            { header: 'Tarih', key: 'created_at', width: 20 },
+          ],
+          rows: recommendations.map((row) => ({
+            ...row,
+            created_at: row.created_at ? new Date(row.created_at).toLocaleString('tr-TR') : '',
+          })),
+        },
+      ],
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
