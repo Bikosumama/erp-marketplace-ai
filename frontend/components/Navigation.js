@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
 
+// ÇİFT YAZILMIŞ HATALI KISIM DÜZELTİLDİ
 const navItems = [
-  const navItems = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/products', label: 'Ürünler' },
   { href: '/brands', label: 'Markalar' },
