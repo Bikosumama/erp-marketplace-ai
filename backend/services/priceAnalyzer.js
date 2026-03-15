@@ -470,7 +470,9 @@ router.post('/recommendations/:id/reject', async (req, res) => {
   }
 });
 
-module.exports = router;
-buildRecommendation,
-    toNumber // Buraya eklediğinden emin ol
+// Dosyanın içindeki tüm fonksiyonlar bittikten sonra en altta sadece bu kalsın:
+
+module.exports = {
+  buildRecommendation,
+  toNumber
 };
