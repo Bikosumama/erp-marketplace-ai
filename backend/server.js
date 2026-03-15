@@ -3,6 +3,7 @@ require('./migrations/init.js');
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'BULUNDU' : 'YOK');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const morgan = require('morgan');
