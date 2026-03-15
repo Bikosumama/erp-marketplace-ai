@@ -349,10 +349,12 @@ async function init() {
       );
     `);
 
+    // Indexes
     await client.query(`CREATE INDEX IF NOT EXISTS idx_products_stock_code ON products(stock_code);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_products_brand_min_price ON products(brand_min_price);`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_name_lower ON brands (LOWER(name));`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent ON categories (LOWER(name), COALESCE(parent_id, -1));`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_pmi_product_id ON product_marketplace_identifiers(product_id);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_competitor_prices_product_marketplace ON competitor_prices(product_id, marketplace_id, observed_at DESC);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_marketplace_rules_scope_lookup ON marketplace_rules(scope_type, marketplace_id, category_id, product_id, is_active);`);
@@ -363,12 +365,14 @@ async function init() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_price_history_product_created_at ON price_history(product_id, created_at DESC);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_alerts_product_status ON alerts(product_id, is_resolved, created_at DESC);`);
 
+    // Varsayılan pazaryerleri
     await client.query(`
       INSERT INTO marketplaces (marketplace_name)
       VALUES ('Trendyol'), ('Hepsiburada'), ('Amazon'), ('Pazarama')
       ON CONFLICT (marketplace_name) DO NOTHING;
     `);
 
+    // Varsayılan genel kural
     await client.query(`
       INSERT INTO marketplace_rules (
         scope_type, marketplace_id, priority, minimum_profit_margin, target_profit_margin,
