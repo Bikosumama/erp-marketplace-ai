@@ -17,19 +17,40 @@ app.use(helmet());
 
 // CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3001', 'https://erp-marketplace-ai.vercel.app'];
+  ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim())
+  : [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://erp-marketplace-ai.vercel.app',
+    ];
 
-app.use(cors({
+const allowedOriginPatterns = [
+  /^https:\/\/erp-marketplace-ai.*\.vercel\.app$/,
+];
+
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS: ${origin} adresine izin verilmiyor`));
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      allowedOriginPatterns.some((pattern) => pattern.test(origin));
+
+    if (isAllowed) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS: ${origin} adresine izin verilmiyor`));
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Loglama
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -86,9 +107,11 @@ app.use((req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error(`[${new Date().toISOString()}] ${err.stack}`);
+
   if (err.message?.startsWith('CORS:')) {
     return res.status(403).json({ error: err.message });
   }
+
   const status = err.status || err.statusCode || 500;
   const message = process.env.NODE_ENV === 'production' ? 'Sunucu hatası' : err.message;
   res.status(status).json({ error: message });
@@ -111,9 +134,11 @@ const initDB = require('./migrations/init.js');
 initDB()
   .then(() => {
     console.log('DB hazır');
+
     const server = app.listen(PORT, () => {
       console.log(`Server ${PORT} portunda çalışıyor [${process.env.NODE_ENV || 'development'}]`);
     });
+
     process.on('SIGTERM', () => {
       console.log('SIGTERM alındı, sunucu kapatılıyor...');
       server.close(() => {
