@@ -9,10 +9,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const STATUS_LABELS = {
   pending: 'Beklemede',
-  processing: 'İşleniyor',
+  processing: 'Isleniyor',
   shipped: 'Kargoda',
   delivered: 'Teslim Edildi',
-  cancelled: 'İptal',
+  cancelled: 'Iptal',
 };
 
 export default function OrdersPage() {
@@ -39,14 +39,14 @@ export default function OrdersPage() {
       const data = await res.json();
       setOrders(data.orders || []);
     } catch {
-      setError('Siparişler yüklenemedi');
+      setError('Siparisler yuklenemedi');
     } finally {
       setFetching(false);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu siparişi silmek istediğinize emin misiniz?')) return;
+    if (!confirm('Bu siparisi silmek istediginize emin misiniz?')) return;
     try {
       await fetch(`${API_URL}/api/orders/${id}`, {
         method: 'DELETE',
@@ -54,11 +54,11 @@ export default function OrdersPage() {
       });
       fetchOrders();
     } catch {
-      setError('Sipariş silinemedi');
+      setError('Siparis silinemedi');
     }
   };
 
-  if (loading) return <div style={styles.loading}>Yükleniyor...</div>;
+  if (loading) return <div style={styles.loading}>Yukleniyor...</div>;
   if (!user) return null;
 
   return (
@@ -66,26 +66,26 @@ export default function OrdersPage() {
       <Navigation />
       <main style={styles.main}>
         <div style={styles.header}>
-          <h1 style={styles.heading}>🛒 Siparişler</h1>
+          <h1 style={styles.heading}>Siparisler</h1>
         </div>
 
         {error && <div style={styles.error}>{error}</div>}
 
         {fetching ? (
-          <div style={styles.loading}>Siparişler yükleniyor...</div>
+          <div style={styles.loading}>Siparisler yukleniyor...</div>
         ) : orders.length === 0 ? (
-          <div style={styles.empty}>Henüz sipariş bulunmuyor.</div>
+          <div style={styles.empty}>Henuz siparis bulunmuyor.</div>
         ) : (
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Sipariş ID</th>
+                <th style={styles.th}>Siparis ID</th>
                 <th style={styles.th}>Pazaryeri</th>
-                <th style={styles.th}>Müşteri</th>
+                <th style={styles.th}>Musteri</th>
                 <th style={styles.th}>Tutar</th>
                 <th style={styles.th}>Durum</th>
                 <th style={styles.th}>Tarih</th>
-                <th style={styles.th}>İşlem</th>
+                <th style={styles.th}>Islem</th>
               </tr>
             </thead>
             <tbody>
@@ -94,7 +94,7 @@ export default function OrdersPage() {
                   <td style={styles.td}>#{o.id}</td>
                   <td style={styles.td}>{o.marketplace || '—'}</td>
                   <td style={styles.td}>{o.customer || '—'}</td>
-                  <td style={styles.td}>{o.total ? `₺${o.total}` : '—'}</td>
+                  <td style={styles.td}>{o.total ? `${o.total} TL` : '—'}</td>
                   <td style={styles.td}>
                     <span style={{ ...styles.badge, backgroundColor: getStatusColor(o.status) }}>
                       {STATUS_LABELS[o.status] || o.status || '—'}
@@ -137,5 +137,5 @@ const styles = {
   tr: { borderBottom: '1px solid #f1f2f6' },
   td: { padding: '12px 16px', fontSize: '14px', color: '#2c3e50' },
   badge: { display: 'inline-block', padding: '4px 10px', borderRadius: '12px', color: '#fff', fontSize: '12px' },
-  deleteBtn: { padding: '6px 12px', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px' },
+  deleteBtn: { padding: '6px 12px', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' },
 };
