@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -133,7 +133,7 @@ export default function RulesPage() {
       setProfitTargets(ptData.rules || []);
       setExtraDeductions(edData.rules || []);
     } catch (err) {
-      setError(err.message || 'Kural verileri yÃ¼klenemedi');
+      setError(err.message || 'Kural verileri yüklenemedi');
     } finally {
       setLoadingData(false);
     }
@@ -154,7 +154,7 @@ export default function RulesPage() {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Ä°ÅŸlem baÅŸarÄ±sÄ±z');
+    if (!res.ok) throw new Error(data.error || 'İşlem başarısız');
     setSuccess(successMessage);
     await fetchAll();
     return data;
@@ -165,7 +165,7 @@ export default function RulesPage() {
     setSuccess('');
     const res = await fetch(url, { method: 'DELETE', headers: authHeader() });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Silme baÅŸarÄ±sÄ±z');
+    if (!res.ok) throw new Error(data.error || 'Silme başarısız');
     setSuccess(successMessage);
     await fetchAll();
   }
@@ -177,7 +177,7 @@ export default function RulesPage() {
         `${API_URL}/api/rules/marketplace${editingMarketplaceRuleId ? `/${editingMarketplaceRuleId}` : ''}`,
         editingMarketplaceRuleId ? 'PUT' : 'POST',
         marketplaceForm,
-        editingMarketplaceRuleId ? 'Pazaryeri kuralÄ± gÃ¼ncellendi' : 'Pazaryeri kuralÄ± eklendi'
+        editingMarketplaceRuleId ? 'Pazaryeri kuralı güncellendi' : 'Pazaryeri kuralı eklendi'
       );
       setMarketplaceForm(emptyMarketplaceRule);
       setEditingMarketplaceRuleId(null);
@@ -191,7 +191,7 @@ export default function RulesPage() {
         `${API_URL}/api/rules/shipping${editingShippingRuleId ? `/${editingShippingRuleId}` : ''}`,
         editingShippingRuleId ? 'PUT' : 'POST',
         shippingForm,
-        editingShippingRuleId ? 'Kargo kuralÄ± gÃ¼ncellendi' : 'Kargo kuralÄ± eklendi'
+        editingShippingRuleId ? 'Kargo kuralı güncellendi' : 'Kargo kuralı eklendi'
       );
       setShippingForm(emptyShippingRule);
       setEditingShippingRuleId(null);
@@ -205,7 +205,7 @@ export default function RulesPage() {
         `${API_URL}/api/rules/profit-targets${editingProfitTargetId ? `/${editingProfitTargetId}` : ''}`,
         editingProfitTargetId ? 'PUT' : 'POST',
         profitForm,
-        editingProfitTargetId ? 'KÃ¢r hedefi gÃ¼ncellendi' : 'KÃ¢r hedefi eklendi'
+        editingProfitTargetId ? 'Kâr hedefi güncellendi' : 'Kâr hedefi eklendi'
       );
       setProfitForm(emptyProfitTarget);
       setEditingProfitTargetId(null);
@@ -219,14 +219,14 @@ export default function RulesPage() {
         `${API_URL}/api/rules/extra-deductions${editingExtraDeductionId ? `/${editingExtraDeductionId}` : ''}`,
         editingExtraDeductionId ? 'PUT' : 'POST',
         extraForm,
-        editingExtraDeductionId ? 'Ek kesinti gÃ¼ncellendi' : 'Ek kesinti eklendi'
+        editingExtraDeductionId ? 'Ek kesinti güncellendi' : 'Ek kesinti eklendi'
       );
       setExtraForm(emptyExtraDeduction);
       setEditingExtraDeductionId(null);
     } catch (err) { setError(err.message); }
   }
 
-  if (loading) return <div style={styles.loading}>YÃ¼kleniyor...</div>;
+  if (loading) return <div style={styles.loading}>Yükleniyor...</div>;
   if (!user) return null;
 
   return (
@@ -235,8 +235,8 @@ export default function RulesPage() {
       <main style={styles.main}>
         <div style={styles.header}>
           <div>
-            <h1 style={styles.heading}>âš™ï¸ Kurallar Merkezi</h1>
-            <p style={styles.subheading}>General fallback, pazaryeri bazlÄ± baremler, ek kesintiler ve kÃ¢r hedefleri bu ekrandan yÃ¶netilir.</p>
+            <h1 style={styles.heading}>⚙️ Kurallar Merkezi</h1>
+            <p style={styles.subheading}>General fallback, pazaryeri bazlı baremler, ek kesintiler ve kâr hedefleri bu ekrandan yönetilir.</p>
           </div>
           <button onClick={fetchAll} style={styles.refreshBtn}>Yenile</button>
         </div>
@@ -246,9 +246,9 @@ export default function RulesPage() {
 
         <div style={styles.tabs}>
           {[
-            ['marketplace', 'Pazaryeri KurallarÄ±'],
+            ['marketplace', 'Pazaryeri Kuralları'],
             ['shipping', 'Kargo Baremleri'],
-            ['profit', 'KÃ¢r Hedefleri'],
+            ['profit', 'Kâr Hedefleri'],
             ['deductions', 'Ek Kesintiler'],
           ].map(([key, label]) => (
             <button key={key} onClick={() => setActiveTab(key)} style={{ ...styles.tab, ...(activeTab === key ? styles.activeTab : {}) }}>
@@ -257,43 +257,43 @@ export default function RulesPage() {
           ))}
         </div>
 
-        {loadingData ? <div style={styles.loading}>Kurallar yÃ¼kleniyor...</div> : (
+        {loadingData ? <div style={styles.loading}>Kurallar yükleniyor...</div> : (
           <div style={styles.sectionWrap}>
             {activeTab === 'marketplace' && (
               <>
-                <RuleFormCard title={editingMarketplaceRuleId ? 'Pazaryeri KuralÄ±nÄ± DÃ¼zenle' : 'Yeni Pazaryeri KuralÄ±'}>
+                <RuleFormCard title={editingMarketplaceRuleId ? 'Pazaryeri Kuralını Düzenle' : 'Yeni Pazaryeri Kuralı'}>
                   <form onSubmit={handleMarketplaceSubmit} style={styles.formGrid}>
-                    <SelectField label="Kapsam" value={marketplaceForm.scope_type} onChange={(value) => setMarketplaceForm((f) => ({ ...f, scope_type: value }))} options={[['general','General'],['marketplace','Pazaryeri'],['category','Kategori'],['product','ÃœrÃ¼n']]} />
-                    <SelectField label="Pazaryeri" value={marketplaceForm.marketplace_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_id: value }))} options={[['','â€”'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
-                    <SelectField label="Kategori" value={marketplaceForm.category_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, category_id: value }))} options={[['','â€”'], ...categoryOptions.map((c) => [String(c.id), c.label])]} />
-                    <SelectField label="ÃœrÃ¼n" value={marketplaceForm.product_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, product_id: value }))} options={[['','â€”'], ...products.slice(0, 200).map((p) => [String(p.id), `${p.stock_code} - ${p.name}`])]} />
-                    <NumberField label="Ã–ncelik" value={marketplaceForm.priority} onChange={(value) => setMarketplaceForm((f) => ({ ...f, priority: value }))} />
+                    <SelectField label="Kapsam" value={marketplaceForm.scope_type} onChange={(value) => setMarketplaceForm((f) => ({ ...f, scope_type: value }))} options={[['general','General'],['marketplace','Pazaryeri'],['category','Kategori'],['product','Ürün']]} />
+                    <SelectField label="Pazaryeri" value={marketplaceForm.marketplace_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_id: value }))} options={[['','—'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
+                    <SelectField label="Kategori" value={marketplaceForm.category_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, category_id: value }))} options={[['','—'], ...categoryOptions.map((c) => [String(c.id), c.label])]} />
+                    <SelectField label="Ürün" value={marketplaceForm.product_id} onChange={(value) => setMarketplaceForm((f) => ({ ...f, product_id: value }))} options={[['','—'], ...products.slice(0, 200).map((p) => [String(p.id), `${p.stock_code} - ${p.name}`])]} />
+                    <NumberField label="Öncelik" value={marketplaceForm.priority} onChange={(value) => setMarketplaceForm((f) => ({ ...f, priority: value }))} />
                     <NumberField label="Komisyon %" value={marketplaceForm.commission_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, commission_rate: value }))} />
-                    <SelectField label="Komisyon TabanÄ±" value={marketplaceForm.commission_base} onChange={(value) => setMarketplaceForm((f) => ({ ...f, commission_base: value }))} options={[['net_ex_vat','KDV HariÃ§'],['gross_price','BrÃ¼t Fiyat']]} />
+                    <SelectField label="Komisyon Tabanı" value={marketplaceForm.commission_base} onChange={(value) => setMarketplaceForm((f) => ({ ...f, commission_base: value }))} options={[['net_ex_vat','KDV Hariç'],['gross_price','Brüt Fiyat']]} />
                     <NumberField label="KDV %" value={marketplaceForm.vat_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, vat_rate: value }))} />
-                    <NumberField label="Sabit Ãœcret" value={marketplaceForm.fixed_fee} onChange={(value) => setMarketplaceForm((f) => ({ ...f, fixed_fee: value }))} />
+                    <NumberField label="Sabit Ücret" value={marketplaceForm.fixed_fee} onChange={(value) => setMarketplaceForm((f) => ({ ...f, fixed_fee: value }))} />
                     <NumberField label="Minimum Marj %" value={marketplaceForm.min_margin_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, min_margin_rate: value }))} />
                     <NumberField label="Hedef Marj %" value={marketplaceForm.target_margin_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, target_margin_rate: value }))} />
-                    <NumberField label="Pazaryeri Ä°ndirimi %" value={marketplaceForm.marketplace_discount_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_discount_rate: value }))} />
+                    <NumberField label="Pazaryeri İndirimi %" value={marketplaceForm.marketplace_discount_rate} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_discount_rate: value }))} />
                     <NumberField label=",90 Yuvarlama" step="0.01" value={marketplaceForm.rounding_ending} onChange={(value) => setMarketplaceForm((f) => ({ ...f, rounding_ending: value }))} />
-                    <CheckboxField label="Ä°ndirim korumaya dahil" checked={marketplaceForm.marketplace_discount_funded} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_discount_funded: value }))} />
+                    <CheckboxField label="İndirim korumaya dahil" checked={marketplaceForm.marketplace_discount_funded} onChange={(value) => setMarketplaceForm((f) => ({ ...f, marketplace_discount_funded: value }))} />
                     <CheckboxField label="Aktif" checked={marketplaceForm.is_active} onChange={(value) => setMarketplaceForm((f) => ({ ...f, is_active: value }))} />
                     <TextField label="Not" value={marketplaceForm.notes} onChange={(value) => setMarketplaceForm((f) => ({ ...f, notes: value }))} full />
                     <FormActions onCancel={() => { setMarketplaceForm(emptyMarketplaceRule); setEditingMarketplaceRuleId(null); }} />
                   </form>
                 </RuleFormCard>
-                <RuleTableCard title="KayÄ±tlÄ± Pazaryeri KurallarÄ±">
-                  <SimpleTable headers={['Scope','Pazaryeri','Kategori','ÃœrÃ¼n','Komisyon','Min %','Hedef %','Ä°ndirim %','Aktif','Ä°ÅŸlem']} rows={marketplaceRules.map((row) => [
+                <RuleTableCard title="Kayıtlı Pazaryeri Kuralları">
+                  <SimpleTable headers={['Scope','Pazaryeri','Kategori','Ürün','Komisyon','Min %','Hedef %','İndirim %','Aktif','İşlem']} rows={marketplaceRules.map((row) => [
                     row.scope_type,
                     row.marketplace_name || 'General',
-                    row.category_name || 'â€”',
-                    row.product_name || 'â€”',
+                    row.category_name || '—',
+                    row.product_name || '—',
                     `${normalizeNumber(row.commission_rate) || 0}%`,
                     `${normalizeNumber(row.min_margin_rate ?? row.minimum_profit_margin) || 0}%`,
                     `${normalizeNumber(row.target_margin_rate ?? row.target_profit_margin) || 0}%`,
                     `${normalizeNumber(row.marketplace_discount_rate) || 0}%`,
-                    row.is_active ? 'Evet' : 'HayÄ±r',
-                    <ActionButtons key={`marketplace-${row.id}`} onEdit={() => { setEditingMarketplaceRuleId(row.id); setMarketplaceForm({ ...emptyMarketplaceRule, ...row, marketplace_id: row.marketplace_id || '', category_id: row.category_id || '', product_id: row.product_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/marketplace/${row.id}`, 'Pazaryeri kuralÄ± silindi'); } catch (err) { setError(err.message); } }} />,
+                    row.is_active ? 'Evet' : 'Hayır',
+                    <ActionButtons key={`marketplace-${row.id}`} onEdit={() => { setEditingMarketplaceRuleId(row.id); setMarketplaceForm({ ...emptyMarketplaceRule, ...row, marketplace_id: row.marketplace_id || '', category_id: row.category_id || '', product_id: row.product_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/marketplace/${row.id}`, 'Pazaryeri kuralı silindi'); } catch (err) { setError(err.message); } }} />,
                   ])} />
                 </RuleTableCard>
               </>
@@ -301,27 +301,27 @@ export default function RulesPage() {
 
             {activeTab === 'shipping' && (
               <>
-                <RuleFormCard title={editingShippingRuleId ? 'Kargo Baremini DÃ¼zenle' : 'Yeni Kargo Baremi'}>
+                <RuleFormCard title={editingShippingRuleId ? 'Kargo Baremini Düzenle' : 'Yeni Kargo Baremi'}>
                   <form onSubmit={handleShippingSubmit} style={styles.formGrid}>
                     <SelectField label="Kapsam" value={shippingForm.scope_type} onChange={(value) => setShippingForm((f) => ({ ...f, scope_type: value }))} options={[['general','General'],['marketplace','Pazaryeri']]} />
-                    <SelectField label="Pazaryeri" value={shippingForm.marketplace_id} onChange={(value) => setShippingForm((f) => ({ ...f, marketplace_id: value }))} options={[['','â€”'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
+                    <SelectField label="Pazaryeri" value={shippingForm.marketplace_id} onChange={(value) => setShippingForm((f) => ({ ...f, marketplace_id: value }))} options={[['','—'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
                     <NumberField label="Min Fiyat" value={shippingForm.min_price} onChange={(value) => setShippingForm((f) => ({ ...f, min_price: value }))} />
                     <NumberField label="Max Fiyat" value={shippingForm.max_price} onChange={(value) => setShippingForm((f) => ({ ...f, max_price: value }))} />
-                    <NumberField label="Kargo Ãœcreti" value={shippingForm.shipping_cost} onChange={(value) => setShippingForm((f) => ({ ...f, shipping_cost: value }))} />
-                    <NumberField label="Ã–ncelik" value={shippingForm.priority} onChange={(value) => setShippingForm((f) => ({ ...f, priority: value }))} />
+                    <NumberField label="Kargo Ücreti" value={shippingForm.shipping_cost} onChange={(value) => setShippingForm((f) => ({ ...f, shipping_cost: value }))} />
+                    <NumberField label="Öncelik" value={shippingForm.priority} onChange={(value) => setShippingForm((f) => ({ ...f, priority: value }))} />
                     <CheckboxField label="Aktif" checked={shippingForm.is_active} onChange={(value) => setShippingForm((f) => ({ ...f, is_active: value }))} />
                     <TextField label="Not" value={shippingForm.notes} onChange={(value) => setShippingForm((f) => ({ ...f, notes: value }))} full />
                     <FormActions onCancel={() => { setShippingForm(emptyShippingRule); setEditingShippingRuleId(null); }} />
                   </form>
                 </RuleFormCard>
-                <RuleTableCard title="KayÄ±tlÄ± Kargo Baremleri">
-                  <SimpleTable headers={['Scope','Pazaryeri','Min Fiyat','Max Fiyat','Kargo','Aktif','Ä°ÅŸlem']} rows={shippingRules.map((row) => [
+                <RuleTableCard title="Kayıtlı Kargo Baremleri">
+                  <SimpleTable headers={['Scope','Pazaryeri','Min Fiyat','Max Fiyat','Kargo','Aktif','İşlem']} rows={shippingRules.map((row) => [
                     row.scope_type,
                     row.marketplace_name || 'General',
                     row.min_price,
-                    row.max_price ?? 'âˆ',
+                    row.max_price ?? '�?',
                     row.shipping_cost,
-                    row.is_active ? 'Evet' : 'HayÄ±r',
+                    row.is_active ? 'Evet' : 'Hayır',
                     <ActionButtons key={`shipping-${row.id}`} onEdit={() => { setEditingShippingRuleId(row.id); setShippingForm({ ...emptyShippingRule, ...row, marketplace_id: row.marketplace_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/shipping/${row.id}`, 'Kargo baremi silindi'); } catch (err) { setError(err.message); } }} />,
                   ])} />
                 </RuleTableCard>
@@ -330,30 +330,30 @@ export default function RulesPage() {
 
             {activeTab === 'profit' && (
               <>
-                <RuleFormCard title={editingProfitTargetId ? 'KÃ¢r Hedefini DÃ¼zenle' : 'Yeni KÃ¢r Hedefi'}>
+                <RuleFormCard title={editingProfitTargetId ? 'Kâr Hedefini Düzenle' : 'Yeni Kâr Hedefi'}>
                   <form onSubmit={handleProfitSubmit} style={styles.formGrid}>
-                    <SelectField label="Kapsam" value={profitForm.scope_type} onChange={(value) => setProfitForm((f) => ({ ...f, scope_type: value }))} options={[['general','General'],['marketplace','Pazaryeri'],['category','Kategori'],['product','ÃœrÃ¼n']]} />
-                    <SelectField label="Pazaryeri" value={profitForm.marketplace_id} onChange={(value) => setProfitForm((f) => ({ ...f, marketplace_id: value }))} options={[['','â€”'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
-                    <SelectField label="Kategori" value={profitForm.category_id} onChange={(value) => setProfitForm((f) => ({ ...f, category_id: value }))} options={[['','â€”'], ...categoryOptions.map((c) => [String(c.id), c.label])]} />
-                    <SelectField label="ÃœrÃ¼n" value={profitForm.product_id} onChange={(value) => setProfitForm((f) => ({ ...f, product_id: value }))} options={[['','â€”'], ...products.slice(0, 200).map((p) => [String(p.id), `${p.stock_code} - ${p.name}`])]} />
+                    <SelectField label="Kapsam" value={profitForm.scope_type} onChange={(value) => setProfitForm((f) => ({ ...f, scope_type: value }))} options={[['general','General'],['marketplace','Pazaryeri'],['category','Kategori'],['product','Ürün']]} />
+                    <SelectField label="Pazaryeri" value={profitForm.marketplace_id} onChange={(value) => setProfitForm((f) => ({ ...f, marketplace_id: value }))} options={[['','—'], ...marketplaces.map((m) => [String(m.id), m.marketplace_name])]} />
+                    <SelectField label="Kategori" value={profitForm.category_id} onChange={(value) => setProfitForm((f) => ({ ...f, category_id: value }))} options={[['','—'], ...categoryOptions.map((c) => [String(c.id), c.label])]} />
+                    <SelectField label="Ürün" value={profitForm.product_id} onChange={(value) => setProfitForm((f) => ({ ...f, product_id: value }))} options={[['','—'], ...products.slice(0, 200).map((p) => [String(p.id), `${p.stock_code} - ${p.name}`])]} />
                     <NumberField label="Minimum Marj %" value={profitForm.min_margin_rate} onChange={(value) => setProfitForm((f) => ({ ...f, min_margin_rate: value }))} />
                     <NumberField label="Hedef Marj %" value={profitForm.target_margin_rate} onChange={(value) => setProfitForm((f) => ({ ...f, target_margin_rate: value }))} />
-                    <NumberField label="Ã–ncelik" value={profitForm.priority} onChange={(value) => setProfitForm((f) => ({ ...f, priority: value }))} />
+                    <NumberField label="Öncelik" value={profitForm.priority} onChange={(value) => setProfitForm((f) => ({ ...f, priority: value }))} />
                     <CheckboxField label="Aktif" checked={profitForm.is_active} onChange={(value) => setProfitForm((f) => ({ ...f, is_active: value }))} />
                     <TextField label="Not" value={profitForm.notes} onChange={(value) => setProfitForm((f) => ({ ...f, notes: value }))} full />
                     <FormActions onCancel={() => { setProfitForm(emptyProfitTarget); setEditingProfitTargetId(null); }} />
                   </form>
                 </RuleFormCard>
-                <RuleTableCard title="KayÄ±tlÄ± KÃ¢r Hedefleri">
-                  <SimpleTable headers={['Scope','Pazaryeri','Kategori','ÃœrÃ¼n','Min %','Hedef %','Aktif','Ä°ÅŸlem']} rows={profitTargets.map((row) => [
+                <RuleTableCard title="Kayıtlı Kâr Hedefleri">
+                  <SimpleTable headers={['Scope','Pazaryeri','Kategori','Ürün','Min %','Hedef %','Aktif','İşlem']} rows={profitTargets.map((row) => [
                     row.scope_type,
                     row.marketplace_name || 'General',
-                    row.category_name || 'â€”',
-                    row.product_name || 'â€”',
+                    row.category_name || '—',
+                    row.product_name || '—',
                     `${normalizeNumber(row.min_margin_rate ?? row.min_profit_margin) || 0}%`,
                     `${normalizeNumber(row.target_margin_rate ?? row.target_profit_margin) || 0}%`,
-                    row.is_active ? 'Evet' : 'HayÄ±r',
-                    <ActionButtons key={`profit-${row.id}`} onEdit={() => { setEditingProfitTargetId(row.id); setProfitForm({ ...emptyProfitTarget, ...row, marketplace_id: row.marketplace_id || '', category_id: row.category_id || '', product_id: row.product_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/profit-targets/${row.id}`, 'KÃ¢r hedefi silindi'); } catch (err) { setError(err.message); } }} />,
+                    row.is_active ? 'Evet' : 'Hayır',
+                    <ActionButtons key={`profit-${row.id}`} onEdit={() => { setEditingProfitTargetId(row.id); setProfitForm({ ...emptyProfitTarget, ...row, marketplace_id: row.marketplace_id || '', category_id: row.category_id || '', product_id: row.product_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/profit-targets/${row.id}`, 'Kâr hedefi silindi'); } catch (err) { setError(err.message); } }} />,
                   ])} />
                 </RuleTableCard>
               </>
@@ -361,30 +361,30 @@ export default function RulesPage() {
 
             {activeTab === 'deductions' && (
               <>
-                <RuleFormCard title={editingExtraDeductionId ? 'Ek Kesintiyi DÃ¼zenle' : 'Yeni Ek Kesinti'}>
+                <RuleFormCard title={editingExtraDeductionId ? 'Ek Kesintiyi Düzenle' : 'Yeni Ek Kesinti'}>
                   <form onSubmit={handleExtraSubmit} style={styles.formGrid}>
-                    <SelectField label="BaÄŸlÄ± Fiyat KuralÄ±" value={extraForm.marketplace_rule_id} onChange={(value) => setExtraForm((f) => ({ ...f, marketplace_rule_id: value }))} options={[['','â€”'], ...marketplaceRules.map((r) => [String(r.id), `#${r.id} ${r.scope_type} / ${r.marketplace_name || 'General'}`])]} />
+                    <SelectField label="Bağlı Fiyat Kuralı" value={extraForm.marketplace_rule_id} onChange={(value) => setExtraForm((f) => ({ ...f, marketplace_rule_id: value }))} options={[['','—'], ...marketplaceRules.map((r) => [String(r.id), `#${r.id} ${r.scope_type} / ${r.marketplace_name || 'General'}`])]} />
                     <TextField label="Ad" value={extraForm.name} onChange={(value) => setExtraForm((f) => ({ ...f, name: value }))} />
-                    <SelectField label="TÃ¼r" value={extraForm.deduction_type} onChange={(value) => setExtraForm((f) => ({ ...f, deduction_type: value }))} options={[['withholding','Stopaj'],['service_fee','Hizmet Bedeli'],['campaign_fee','Kampanya KatkÄ±sÄ±'],['other','DiÄŸer']]} />
-                    <SelectField label="Hesap Tipi" value={extraForm.calculation_type} onChange={(value) => setExtraForm((f) => ({ ...f, calculation_type: value }))} options={[['percentage','YÃ¼zde'],['fixed','Sabit Tutar']]} />
-                    <SelectField label="Hesap TabanÄ±" value={extraForm.base_amount_type} onChange={(value) => setExtraForm((f) => ({ ...f, base_amount_type: value }))} options={[['net_ex_vat','KDV HariÃ§'],['gross_price','BrÃ¼t Fiyat'],['net_after_commission','Komisyon SonrasÄ±']]} />
+                    <SelectField label="Tür" value={extraForm.deduction_type} onChange={(value) => setExtraForm((f) => ({ ...f, deduction_type: value }))} options={[['withholding','Stopaj'],['service_fee','Hizmet Bedeli'],['campaign_fee','Kampanya Katkısı'],['other','Diğer']]} />
+                    <SelectField label="Hesap Tipi" value={extraForm.calculation_type} onChange={(value) => setExtraForm((f) => ({ ...f, calculation_type: value }))} options={[['percentage','Yüzde'],['fixed','Sabit Tutar']]} />
+                    <SelectField label="Hesap Tabanı" value={extraForm.base_amount_type} onChange={(value) => setExtraForm((f) => ({ ...f, base_amount_type: value }))} options={[['net_ex_vat','KDV Hariç'],['gross_price','Brüt Fiyat'],['net_after_commission','Komisyon Sonrası']]} />
                     <NumberField label="Oran %" value={extraForm.rate} onChange={(value) => setExtraForm((f) => ({ ...f, rate: value }))} />
                     <NumberField label="Sabit Tutar" value={extraForm.fixed_amount} onChange={(value) => setExtraForm((f) => ({ ...f, fixed_amount: value }))} />
-                    <NumberField label="Ã–ncelik" value={extraForm.priority} onChange={(value) => setExtraForm((f) => ({ ...f, priority: value }))} />
+                    <NumberField label="Öncelik" value={extraForm.priority} onChange={(value) => setExtraForm((f) => ({ ...f, priority: value }))} />
                     <CheckboxField label="Aktif" checked={extraForm.is_active} onChange={(value) => setExtraForm((f) => ({ ...f, is_active: value }))} />
                     <TextField label="Not" value={extraForm.notes} onChange={(value) => setExtraForm((f) => ({ ...f, notes: value }))} full />
                     <FormActions onCancel={() => { setExtraForm(emptyExtraDeduction); setEditingExtraDeductionId(null); }} />
                   </form>
                 </RuleFormCard>
-                <RuleTableCard title="KayÄ±tlÄ± Ek Kesintiler">
-                  <SimpleTable headers={['Ad','Kural','Tip','Taban','Oran','Sabit','Aktif','Ä°ÅŸlem']} rows={extraDeductions.map((row) => [
+                <RuleTableCard title="Kayıtlı Ek Kesintiler">
+                  <SimpleTable headers={['Ad','Kural','Tip','Taban','Oran','Sabit','Aktif','İşlem']} rows={extraDeductions.map((row) => [
                     row.name,
-                    `${row.marketplace_rule_scope || 'â€”'} / ${row.marketplace_name || 'General'}`,
+                    `${row.marketplace_rule_scope || '—'} / ${row.marketplace_name || 'General'}`,
                     row.calculation_type,
                     row.base_amount_type,
                     row.rate,
                     row.fixed_amount,
-                    row.is_active ? 'Evet' : 'HayÄ±r',
+                    row.is_active ? 'Evet' : 'Hayır',
                     <ActionButtons key={`deduction-${row.id}`} onEdit={() => { setEditingExtraDeductionId(row.id); setExtraForm({ ...emptyExtraDeduction, ...row, marketplace_rule_id: row.marketplace_rule_id || '' }); }} onDelete={async () => { try { await deleteRule(`${API_URL}/api/rules/extra-deductions/${row.id}`, 'Ek kesinti silindi'); } catch (err) { setError(err.message); } }} />,
                   ])} />
                 </RuleTableCard>
@@ -401,7 +401,7 @@ function buildCategoryTree(categories, parentId = null, depth = 0) {
   return categories
     .filter((c) => (c.parent_id === null || c.parent_id === undefined ? parentId === null : parseInt(c.parent_id, 10) === parentId))
     .flatMap((c) => [
-      { id: c.id, label: '  '.repeat(depth) + (depth > 0 ? 'â”” ' : '') + c.name },
+      { id: c.id, label: '  '.repeat(depth) + (depth > 0 ? '└ ' : '') + c.name },
       ...buildCategoryTree(categories, c.id, depth + 1),
     ]);
 }
@@ -428,7 +428,7 @@ function FormActions({ onCancel }) {
   return <div style={styles.actions}><button type="submit" style={styles.saveBtn}>Kaydet</button><button type="button" onClick={onCancel} style={styles.cancelBtn}>Temizle</button></div>;
 }
 function ActionButtons({ onEdit, onDelete }) {
-  return <div style={styles.rowActions}><button type="button" onClick={onEdit} style={styles.editBtn}>DÃ¼zenle</button><button type="button" onClick={onDelete} style={styles.deleteBtn}>Sil</button></div>;
+  return <div style={styles.rowActions}><button type="button" onClick={onEdit} style={styles.editBtn}>Düzenle</button><button type="button" onClick={onDelete} style={styles.deleteBtn}>Sil</button></div>;
 }
 function SimpleTable({ headers, rows }) {
   return (

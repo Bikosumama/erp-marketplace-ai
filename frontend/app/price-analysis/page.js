@@ -186,7 +186,7 @@ export default function PriceAnalysisPage() {
       <main style={styles.main}>
         <div style={styles.header}>
           <div>
-            <h1 style={styles.heading}>🤖 RadarAnaliz / Fiyat Analizi</h1>
+            <h1 style={styles.heading}>g��� RadarAnaliz / Fiyat Analizi</h1>
             <p style={styles.subheading}>Ürün bazlı öneriler, risk uyarıları ve uygulama geçmişi tek ekranda.</p>
           </div>
           <div style={styles.headerActions}>
