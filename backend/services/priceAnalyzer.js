@@ -191,4 +191,11 @@ router.post('/recommendations/:id/reject', async (req, res) => {
 });
 
 // CRITICAL FIX: Bu bir router dosyasıdır, router'ı export etmelisin!
-module.exports = router;
+// backend/services/priceAnalyzer.js dosyasının en altı
+module.exports = {
+    buildRecommendation,
+    analyzeSingleProduct, // Buraya ekle
+    upsertRecommendation,  // Buraya ekle
+    toNumber,              // Buraya ekle
+    resolveScopedRule
+};
