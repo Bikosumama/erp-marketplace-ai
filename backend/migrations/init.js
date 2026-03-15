@@ -81,15 +81,20 @@ async function init() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_products_stock_code ON products(stock_code);
     `);
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
     `);
-     -- Brands tablosu için unique index
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_name ON brands (LOWER(name));
 
-     -- Categories tablosu için NULL-safe unique index
-     CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent 
-     ON categories (LOWER(name), COALESCE(parent_id, -1));
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_name ON brands (LOWER(name));
+    `);
+
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent 
+      ON categories (LOWER(name), COALESCE(parent_id, -1));
+    `);
+
     // Product marketplace identifiers (0..N per product per marketplace)
     await client.query(`
       CREATE TABLE IF NOT EXISTS product_marketplace_identifiers (
@@ -111,7 +116,7 @@ async function init() {
       CREATE INDEX IF NOT EXISTS idx_pmi_product_id ON product_marketplace_identifiers(product_id);
     `);
 
-    // Marketplace accounts (legacy compat: kept for existing orders/accounts)
+    // Marketplace accounts
     await client.query(`
       CREATE TABLE IF NOT EXISTS marketplace_accounts (
         id SERIAL PRIMARY KEY,
@@ -146,5 +151,3 @@ async function init() {
 }
 
 init();
-
-
