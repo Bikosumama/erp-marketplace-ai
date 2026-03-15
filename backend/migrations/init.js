@@ -84,7 +84,12 @@ async function init() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
     `);
+     -- Brands tablosu için unique index
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_name ON brands (LOWER(name));
 
+     -- Categories tablosu için NULL-safe unique index
+     CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_name_parent 
+     ON categories (LOWER(name), COALESCE(parent_id, -1));
     // Product marketplace identifiers (0..N per product per marketplace)
     await client.query(`
       CREATE TABLE IF NOT EXISTS product_marketplace_identifiers (
@@ -141,4 +146,5 @@ async function init() {
 }
 
 init();
+
 
