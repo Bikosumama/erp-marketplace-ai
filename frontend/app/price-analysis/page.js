@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
 
@@ -22,8 +22,7 @@ const formatPercent = (value) => {
 export default function PriceAnalysisPage() {
   const { user, token, loading } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialProductId = searchParams.get('productId') || '';
+  const initialProductId = '';
 
   const [summary, setSummary] = useState(null);
   const [recommendations, setRecommendations] = useState([]);
@@ -336,6 +335,7 @@ export default function PriceAnalysisPage() {
                       <td style={styles.td}>{item.date ? new Date(item.date).toLocaleString('tr-TR') : '—'}</td>
                     </tr>
                   ))}
+
                 </tbody>
               </table>
             </div>
