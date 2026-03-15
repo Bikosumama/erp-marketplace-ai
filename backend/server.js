@@ -8,6 +8,9 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 
 dotenv.config();
+// Tabloları otomatik oluştur
+const initDB = require('./migrations/init.js');
+initDB().then(() => console.log('DB hazır')).catch(console.error);
 
 const app = express();
 
