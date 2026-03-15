@@ -4,13 +4,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../context/AuthContext';
 
 const navItems = [
-  { href: '/dashboard', label: 'g��� Dashboard' },
-  { href: '/products', label: 'g��� Ürünler' },
-  { href: '/brands', label: 'g���️ Markalar' },
-  { href: '/categories', label: 'g��� Kategoriler' },
-  { href: '/orders', label: 'g��� Siparişler' },
-  { href: '/marketplaces', label: 'g��� Pazaryerleri' },
-  { href: '/price-analysis', label: 'g��� Fiyat Analizi' },
+  const navItems = [
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/products', label: 'Ürünler' },
+  { href: '/brands', label: 'Markalar' },
+  { href: '/categories', label: 'Kategoriler' },
+  { href: '/orders', label: 'Siparişler' },
+  { href: '/marketplaces', label: 'Pazaryerleri' },
+  { href: '/price-analysis', label: 'Fiyat Analizi' },
   { href: '/rules', label: '⚙️ Kurallar' },
 ];
 
