@@ -31,7 +31,7 @@ export default function BrandsPage() {
       const data = await res.json();
       setBrands(data.brands || []);
     } catch {
-      setError('Markalar yüklenemedi');
+      setError('Markalar yuklenemedi');
     } finally {
       setFetching(false);
     }
@@ -64,7 +64,7 @@ export default function BrandsPage() {
   };
 
   const handleDelete = async (id, name) => {
-    if (!confirm(`"${name}" markasını silmek istediğinize emin misiniz?`)) return;
+    if (!confirm(`"${name}" markasini silmek istediginize emin misiniz?`)) return;
     try {
       const res = await fetch(`${API_URL}/api/brands/${id}`, { method: 'DELETE', headers: authHeader() });
       if (res.ok) { setSuccess(`"${name}" silindi`); fetchBrands(); }
@@ -74,27 +74,26 @@ export default function BrandsPage() {
     }
   };
 
-  if (loading) return <div style={s.loading}>Yükleniyor...</div>;
+  if (loading) return <div style={s.loading}>Yukleniyor...</div>;
   if (!user) return null;
 
   return (
     <>
       <Navigation />
       <main style={s.main}>
-        <h1 style={s.heading}>🏷️ Marka Yönetimi</h1>
+        <h1 style={s.heading}>Marka Yonetimi</h1>
 
-        {error && <div style={s.error}>{error} <button onClick={() => setError('')} style={s.clearBtn}>✕</button></div>}
-        {success && <div style={s.success}>{success} <button onClick={() => setSuccess('')} style={s.clearBtn}>✕</button></div>}
+        {error && <div style={s.error}>{error} <button onClick={() => setError('')} style={s.clearBtn}>X</button></div>}
+        {success && <div style={s.success}>{success} <button onClick={() => setSuccess('')} style={s.clearBtn}>X</button></div>}
 
-        {/* Yeni Marka Ekle */}
         <div style={s.card}>
-          <h2 style={s.subTitle}>➕ Yeni Marka Ekle</h2>
+          <h2 style={s.subTitle}>Yeni Marka Ekle</h2>
           <div style={s.addRow}>
             <input
               value={newBrand}
               onChange={(e) => setNewBrand(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              placeholder="Marka adı yazın..."
+              placeholder="Marka adi yazin..."
               style={s.input}
             />
             <button onClick={handleAdd} disabled={saving || !newBrand.trim()} style={s.addBtn}>
@@ -103,21 +102,20 @@ export default function BrandsPage() {
           </div>
         </div>
 
-        {/* Marka Listesi */}
         <div style={s.card}>
-          <h2 style={s.subTitle}>📋 Markalar ({brands.length})</h2>
+          <h2 style={s.subTitle}>Markalar ({brands.length})</h2>
           {fetching ? (
-            <div style={s.loading}>Yükleniyor...</div>
+            <div style={s.loading}>Yukleniyor...</div>
           ) : brands.length === 0 ? (
-            <div style={s.empty}>Henüz marka eklenmemiş.</div>
+            <div style={s.empty}>Henuz marka eklenmemis.</div>
           ) : (
             <table style={s.table}>
               <thead>
                 <tr>
                   <th style={s.th}>#</th>
-                  <th style={s.th}>Marka Adı</th>
+                  <th style={s.th}>Marka Adi</th>
                   <th style={s.th}>Eklenme Tarihi</th>
-                  <th style={s.th}>İşlem</th>
+                  <th style={s.th}>Islem</th>
                 </tr>
               </thead>
               <tbody>
@@ -127,7 +125,7 @@ export default function BrandsPage() {
                     <td style={s.td}><strong>{b.name}</strong></td>
                     <td style={s.td}>{new Date(b.created_at).toLocaleDateString('tr-TR')}</td>
                     <td style={s.td}>
-                      <button onClick={() => handleDelete(b.id, b.name)} style={s.deleteBtn}>🗑 Sil</button>
+                      <button onClick={() => handleDelete(b.id, b.name)} style={s.deleteBtn}>Sil</button>
                     </td>
                   </tr>
                 ))}
