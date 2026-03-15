@@ -34,7 +34,7 @@ export default function MarketplacesPage() {
       const data = await res.json();
       setMarketplaces(data.marketplaces || []);
     } catch {
-      setError('Pazaryerleri yüklenemedi');
+      setError('Pazaryerleri yuklenemedi');
     } finally {
       setFetching(false);
     }
@@ -45,10 +45,7 @@ export default function MarketplacesPage() {
     try {
       const res = await fetch(`${API_URL}/api/marketplaces`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
       });
       if (res.ok) {
@@ -62,7 +59,7 @@ export default function MarketplacesPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Bu pazaryerini silmek istediğinize emin misiniz?')) return;
+    if (!confirm('Bu pazaryerini silmek istediginize emin misiniz?')) return;
     try {
       await fetch(`${API_URL}/api/marketplaces/${id}`, {
         method: 'DELETE',
@@ -89,7 +86,7 @@ export default function MarketplacesPage() {
     }
   };
 
-  if (loading) return <div style={styles.loading}>Yükleniyor...</div>;
+  if (loading) return <div style={styles.loading}>Yukleniyor...</div>;
   if (!user) return null;
 
   return (
@@ -97,9 +94,9 @@ export default function MarketplacesPage() {
       <Navigation />
       <main style={styles.main}>
         <div style={styles.header}>
-          <h1 style={styles.heading}>🏪 Pazaryerleri</h1>
+          <h1 style={styles.heading}>Pazaryerleri</h1>
           <button onClick={() => setShowForm(!showForm)} style={styles.btn}>
-            {showForm ? 'İptal' : '+ Yeni Pazaryeri'}
+            {showForm ? 'Iptal' : '+ Yeni Pazaryeri'}
           </button>
         </div>
 
@@ -108,7 +105,7 @@ export default function MarketplacesPage() {
         {showForm && (
           <form onSubmit={handleCreate} style={styles.form}>
             <input
-              placeholder="Pazaryeri Adı (ör: Trendyol)"
+              placeholder="Pazaryeri Adi (or: Trendyol)"
               required
               value={form.marketplace_name}
               onChange={(e) => setForm({ ...form, marketplace_name: e.target.value })}
@@ -132,16 +129,16 @@ export default function MarketplacesPage() {
         )}
 
         {fetching ? (
-          <div style={styles.loading}>Pazaryerleri yükleniyor...</div>
+          <div style={styles.loading}>Pazaryerleri yukleniyor...</div>
         ) : marketplaces.length === 0 ? (
-          <div style={styles.empty}>Henüz pazaryeri eklenmemiş.</div>
+          <div style={styles.empty}>Henuz pazaryeri eklenmemis.</div>
         ) : (
           <div style={styles.grid}>
             {marketplaces.map((m) => (
               <div key={m.id} style={styles.card}>
                 <div style={styles.cardName}>{m.marketplace_name || m.name}</div>
                 <div style={styles.cardStatus}>
-                  {m.is_active ? '🟢 Aktif' : '🔴 Pasif'}
+                  {m.is_active ? 'Aktif' : 'Pasif'}
                 </div>
                 <div style={styles.cardActions}>
                   <button
@@ -149,15 +146,11 @@ export default function MarketplacesPage() {
                     style={styles.syncBtn}
                     disabled={syncStatus[m.id] === 'syncing'}
                   >
-                    {syncStatus[m.id] === 'syncing'
-                      ? 'Senkronize ediliyor...'
-                      : syncStatus[m.id] === 'done'
-                      ? '✅ Tamamlandı'
-                      : '🔄 Senkronize Et'}
+                    {syncStatus[m.id] === 'syncing' ? 'Senkronize ediliyor...'
+                      : syncStatus[m.id] === 'done' ? 'Tamamlandi'
+                      : 'Senkronize Et'}
                   </button>
-                  <button onClick={() => handleDelete(m.id)} style={styles.deleteBtn}>
-                    Sil
-                  </button>
+                  <button onClick={() => handleDelete(m.id)} style={styles.deleteBtn}>Sil</button>
                 </div>
               </div>
             ))}
@@ -173,17 +166,17 @@ const styles = {
   main: { padding: '32px', maxWidth: '1200px', margin: '0 auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' },
   heading: { fontSize: '28px', color: '#2c3e50' },
-  btn: { padding: '10px 20px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px' },
+  btn: { padding: '10px 20px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
   error: { backgroundColor: '#fee2e2', color: '#dc2626', padding: '10px 14px', borderRadius: '6px', marginBottom: '16px' },
   form: { backgroundColor: '#fff', padding: '20px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', marginBottom: '24px', display: 'flex', gap: '12px', flexWrap: 'wrap' },
   input: { padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', flex: '1', minWidth: '160px' },
-  submitBtn: { padding: '10px 20px', backgroundColor: '#27ae60', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px' },
+  submitBtn: { padding: '10px 20px', backgroundColor: '#27ae60', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
   empty: { textAlign: 'center', color: '#7f8c8d', padding: '40px' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '20px' },
   card: { backgroundColor: '#fff', padding: '24px', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' },
   cardName: { fontSize: '18px', fontWeight: 'bold', color: '#2c3e50', marginBottom: '8px' },
   cardStatus: { fontSize: '14px', color: '#7f8c8d', marginBottom: '16px' },
   cardActions: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
-  syncBtn: { padding: '8px 14px', backgroundColor: '#9b59b6', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px' },
-  deleteBtn: { padding: '8px 14px', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px' },
+  syncBtn: { padding: '8px 14px', backgroundColor: '#9b59b6', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' },
+  deleteBtn: { padding: '8px 14px', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' },
 };
