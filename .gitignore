@@ -4,7 +4,6 @@ package-lock.json
 yarn.lock
 
 # Environment variables
-.env
 .env.local
 .env.*.local
 
@@ -23,9 +22,3 @@ Thumbs.db
 dist/
 build/
 *.log
-
-# Next.js
-.next/
-out/
-frontend/.next/
-frontend/out/

@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: erp-marketplace-ai-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-erp_marketplace}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - erp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:6
+    container_name: erp-marketplace-ai-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - erp-network
+    volumes:
+      - redis_data:/data
+
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-marketplace-ai-node
+    environment:
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-erp_marketplace}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - erp-network
+    volumes:
+      - ./backend:/app/backend
+
+  appsmith:
+    image: appsmith/appsmith:latest
+    container_name: erp-marketplace-ai-appsmith
+    ports:
+      - "8080:80"
+    environment:
+      APPSMITH_MONGODB_URI: mongodb://mongodb:27017/appsmith
+      APPSMITH_ENCRYPTION_PASSWORD: MySecretKey@2024
+      APPSMITH_ENCRYPTION_SALT: MySecretSalt@2024
+      APPSMITH_LOG_LEVEL: DEBUG
+      APPSMITH_DISABLE_TELEMETRY: "true"
+    depends_on:
+      - mongodb
+    networks:
+      - erp-network
+    volumes:
+      - appsmith_data:/appsmith-stacks
+
+  mongodb:
+    image: mongo:5
+    container_name: erp-marketplace-ai-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: appsmith
+    networks:
+      - erp-network
+    volumes:
+      - mongodb_data:/data/db
+
+volumes:
+  postgres_data:
+  redis_data:
+  appsmith_data:
+  mongodb_data:
+
+networks:
+  erp-network:
+    driver: bridge

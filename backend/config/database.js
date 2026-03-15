@@ -1,12 +1,18 @@
 const { Pool } = require('pg');
 
-// PostgreSQL connection pool configuration
-const pool = new Pool({
-  user: 'your_username', // replace with your database username
-  host: 'localhost', // replace with your database host
-  database: 'your_database', // replace with your database name
-  password: 'your_password', // replace with your database password
-  port: 5432, // default PostgreSQL port
-});
+const pool = new Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+      }
+    : {
+        user: process.env.DB_USER || 'user',
+        host: process.env.DB_HOST || 'localhost',
+        database: process.env.DB_NAME || 'mydatabase',
+        password: process.env.DB_PASSWORD || 'password',
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+      }
+);
 
 module.exports = pool;

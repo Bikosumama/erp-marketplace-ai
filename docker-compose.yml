@@ -18,6 +18,12 @@ services:
       - '3000:3000'
     depends_on:
       - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: mydatabase
+      DB_USER: user
+      DB_PASSWORD: password
 
   redis:
     image: redis:6
