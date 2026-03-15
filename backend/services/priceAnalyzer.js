@@ -194,8 +194,6 @@ router.post('/recommendations/:id/reject', async (req, res) => {
 // backend/services/priceAnalyzer.js dosyasının en altı
 module.exports = {
     buildRecommendation,
-    analyzeSingleProduct, // Buraya ekle
-    upsertRecommendation,  // Buraya ekle
-    toNumber,              // Buraya ekle
+    toNumber,
     resolveScopedRule
 };
