@@ -321,7 +321,7 @@ export default function ProductsPage() {
               <table style={s.table}>
                 <thead>
                   <tr>
-                    {['Stok Kodu','Ad','Barkod','Marka','Kategori','Maliyet','Satış Fiyatı','Para Birimi','KDV%','Durum','İşlem'].map((h) => (
+                    {['Stok Kodu','Ad','Barkod','Marka','Kategori','Maliyet','Satış Fiyatı','Brüt Marj','Para Birimi','KDV%','Durum','İşlem'].map((h) => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
@@ -336,6 +336,7 @@ export default function ProductsPage() {
                       <td style={s.td}>{p.category_name || '—'}</td>
                       <td style={s.td}>{p.cost ? `${p.cost} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.sale_price ? `${p.sale_price} ${p.currency}` : '—'}</td>
+                      <td style={s.td}>{renderMarginBadge(p)}</td>
                       <td style={s.td}>{p.currency || 'TRY'}</td>
                       <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
                       <td style={s.td}>
@@ -344,6 +345,7 @@ export default function ProductsPage() {
                         </span>
                       </td>
                       <td style={s.td}>
+                        <button onClick={() => router.push(`/price-analysis?productId=${p.id}`)} style={s.analyzeBtn}>Analiz</button>
                         <button onClick={() => openEdit(p)} style={s.editBtn}>Düzenle</button>
                         <button onClick={() => handleDelete(p.id)} style={s.deleteBtn}>Sil</button>
                       </td>
@@ -513,6 +515,30 @@ function buildCategoryTree(categories, parentId = null, depth = 0) {
     ]);
 }
 
+function renderMarginBadge(product) {
+  const cost = Number(product?.cost || 0);
+  const salePrice = Number(product?.sale_price || 0);
+
+  if (!cost || !salePrice) {
+    return <span style={s.marginUnknown}>Hesaplanamadı</span>;
+  }
+
+  const margin = ((salePrice - cost) / cost) * 100;
+  if (!Number.isFinite(margin)) {
+    return <span style={s.marginUnknown}>Hesaplanamadı</span>;
+  }
+
+  if (margin < 10) {
+    return <span style={s.marginDanger}>%{margin.toFixed(1)}</span>;
+  }
+
+  if (margin < 20) {
+    return <span style={s.marginWarn}>%{margin.toFixed(1)}</span>;
+  }
+
+  return <span style={s.marginGood}>%{margin.toFixed(1)}</span>;
+}
+
 const s = {
   loading: { padding: '40px', textAlign: 'center', fontSize: '18px' },
   main: { padding: '32px', maxWidth: '1400px', margin: '0 auto' },
@@ -533,10 +559,15 @@ const s = {
   tr: { borderBottom: '1px solid #f1f2f6' },
   td: { padding: '10px 12px', color: '#2c3e50', whiteSpace: 'nowrap' },
   empty: { textAlign: 'center', color: '#7f8c8d', padding: '40px' },
+  analyzeBtn: { padding: '5px 10px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', marginRight: '6px' },
   editBtn: { padding: '5px 10px', backgroundColor: '#f39c12', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', marginRight: '6px' },
   deleteBtn: { padding: '5px 10px', backgroundColor: '#e74c3c', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' },
   badgeActive: { backgroundColor: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: '12px', fontSize: '12px' },
   badgePassive: { backgroundColor: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '12px', fontSize: '12px' },
+  marginGood: { backgroundColor: '#dcfce7', color: '#166534', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600 },
+  marginWarn: { backgroundColor: '#fef3c7', color: '#92400e', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600 },
+  marginDanger: { backgroundColor: '#fee2e2', color: '#b91c1c', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600 },
+  marginUnknown: { backgroundColor: '#e5e7eb', color: '#374151', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600 },
   card: { backgroundColor: '#fff', borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.08)', padding: '24px' },
   formTabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '2px solid #e5e7eb', paddingBottom: '0' },
   formTabBtn: { padding: '8px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#6b7280', borderBottom: '2px solid transparent', marginBottom: '-2px' },
