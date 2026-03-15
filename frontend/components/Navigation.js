@@ -11,6 +11,7 @@ const navItems = [
   { href: '/orders', label: '🛒 Siparişler' },
   { href: '/marketplaces', label: '🏪 Pazaryerleri' },
   { href: '/price-analysis', label: '🤖 Fiyat Analizi' },
+  { href: '/rules', label: '⚙️ Kurallar' },
 ];
 
 export default function Navigation() {

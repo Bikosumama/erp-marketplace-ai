@@ -270,12 +270,31 @@ export default function PriceAnalysisPage() {
                     <MetricRow label="Taban fiyat" value={formatPrice(r.floor_price)} />
                     <MetricRow label="Hedef fiyat" value={formatPrice(r.target_price)} />
                     <MetricRow label="Rakip fiyat" value={r.competitor_price == null ? '—' : formatPrice(r.competitor_price)} />
+                    <MetricRow label="Firma min fiyat" value={formatPrice(r.brand_min_price)} />
+                    <MetricRow label="Korunan taban" value={formatPrice(r.protected_floor)} />
+                    <MetricRow label="İndirim düzeltilmiş" value={formatPrice(r.discount_adjusted_protected_price)} />
+                    <MetricRow label="Müşteri fiyatı" value={formatPrice(r.customer_seen_price)} />
+                    <MetricRow label="Kargo" value={formatPrice(r.shipping_cost)} />
+                    <MetricRow label="Komisyon" value={formatPrice(r.commission_amount)} />
+                    <MetricRow label="Ek kesintiler" value={formatPrice(r.extra_deductions_total)} />
                     <MetricRow label="Mevcut marj" value={formatPercent(r.current_margin_rate)} />
                     <MetricRow label="Beklenen marj" value={formatPercent(r.projected_margin_rate)} />
                     <MetricRow label="Güven" value={`${Math.round((Number(r.confidence) || 0) * 100)}%`} />
                   </div>
 
-                  <div style={styles.reasonBox}>{r.reason || 'Açıklama üretilmedi.'}</div>
+                  <div style={styles.reasonBox}>
+                    <div>{r.reason || 'Açıklama üretilmedi.'}</div>
+                    {Array.isArray(r.reasons) && r.reasons.length > 0 && (
+                      <ul style={styles.reasonList}>
+                        {r.reasons.slice(0, 8).map((item, idx) => <li key={idx}>{item}</li>)}
+                      </ul>
+                    )}
+                    {(r.metadata?.shipping_rule_scope || r.metadata?.marketplace_rule_scope) && (
+                      <div style={styles.ruleMeta}>
+                        Fiyat kuralı: <strong>{r.metadata?.marketplace_rule_scope || '—'}</strong> · Kargo kuralı: <strong>{r.metadata?.shipping_rule_scope || '—'}</strong>
+                      </div>
+                    )}
+                  </div>
 
                   <div style={styles.badgeRow}>
                     <span style={styles.typeBadge}>{translateType(r.recommendation_type)}</span>
@@ -447,6 +466,8 @@ const styles = {
   metricValue: { fontSize: '15px', color: '#111827', fontWeight: 600 },
   metricAccent: { color: '#059669' },
   reasonBox: { backgroundColor: '#f8fafc', padding: '12px 14px', borderRadius: '12px', fontSize: '13px', color: '#334155', lineHeight: 1.5 },
+  reasonList: { margin: '8px 0 0 18px', padding: 0 },
+  ruleMeta: { marginTop: '8px', fontSize: '12px', color: '#475569' },
   badgeRow: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' },
   typeBadge: { backgroundColor: '#dbeafe', color: '#1d4ed8', padding: '6px 10px', borderRadius: '999px', fontSize: '12px' },
   statusBadge: { backgroundColor: '#ede9fe', color: '#6d28d9', padding: '6px 10px', borderRadius: '999px', fontSize: '12px' },

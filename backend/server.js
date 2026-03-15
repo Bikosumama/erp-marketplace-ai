@@ -76,6 +76,7 @@ app.use('/api/marketplaces', authenticateToken, require('./routes/marketplaces')
 app.use('/api/price-analysis', authenticateToken, require('./routes/price-analysis'));
 app.use('/api/brands', authenticateToken, require('./routes/brands'));
 app.use('/api/categories', authenticateToken, require('./routes/categories'));
+app.use('/api/rules', authenticateToken, require('./routes/rules'));
 
 // 404 handler
 app.use((req, res) => {

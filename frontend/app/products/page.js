@@ -17,6 +17,7 @@ const emptyForm = {
   cost: '',
   sale_price: '',
   list_price: '',
+  brand_min_price: '',
   currency: 'TRY',
   vat_rate: '18',
   status: 'active',
@@ -105,6 +106,7 @@ export default function ProductsPage() {
         cost: prod.cost || '',
         sale_price: prod.sale_price || '',
         list_price: prod.list_price || '',
+        brand_min_price: prod.brand_min_price || '',
         currency: prod.currency || 'TRY',
         vat_rate: prod.vat_rate || '18',
         status: prod.status || 'active',
@@ -155,6 +157,7 @@ export default function ProductsPage() {
         cost: form.cost !== '' ? parseFloat(form.cost) : null,
         sale_price: form.sale_price !== '' ? parseFloat(form.sale_price) : null,
         list_price: form.list_price !== '' ? parseFloat(form.list_price) : null,
+        brand_min_price: form.brand_min_price !== '' ? parseFloat(form.brand_min_price) : null,
         vat_rate: form.vat_rate !== '' ? parseFloat(form.vat_rate) : 18,
         marketplace_identifiers: form.marketplace_identifiers.filter((mi) => mi.marketplace_id),
       };
@@ -321,7 +324,7 @@ export default function ProductsPage() {
               <table style={s.table}>
                 <thead>
                   <tr>
-                    {['Stok Kodu','Ad','Barkod','Marka','Kategori','Maliyet','Satış Fiyatı','Brüt Marj','Para Birimi','KDV%','Durum','İşlem'].map((h) => (
+                    {['Stok Kodu','Ad','Barkod','Marka','Kategori','Maliyet','Satış Fiyatı','Firma Min','Brüt Marj','Para Birimi','KDV%','Durum','İşlem'].map((h) => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr>
@@ -336,6 +339,7 @@ export default function ProductsPage() {
                       <td style={s.td}>{p.category_name || '—'}</td>
                       <td style={s.td}>{p.cost ? `${p.cost} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{p.sale_price ? `${p.sale_price} ${p.currency}` : '—'}</td>
+                      <td style={s.td}>{p.brand_min_price ? `${p.brand_min_price} ${p.currency}` : '—'}</td>
                       <td style={s.td}>{renderMarginBadge(p)}</td>
                       <td style={s.td}>{p.currency || 'TRY'}</td>
                       <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
@@ -398,6 +402,7 @@ export default function ProductsPage() {
                   <label style={s.label}>Maliyet<input type="number" step="0.0001" min="0" value={form.cost} onChange={(e) => handleFormChange('cost', e.target.value)} style={s.input} placeholder="0.00" /></label>
                   <label style={s.label}>Satış Fiyatı<input type="number" step="0.0001" min="0" value={form.sale_price} onChange={(e) => handleFormChange('sale_price', e.target.value)} style={s.input} placeholder="0.00" /></label>
                   <label style={s.label}>Liste Fiyatı<input type="number" step="0.0001" min="0" value={form.list_price} onChange={(e) => handleFormChange('list_price', e.target.value)} style={s.input} placeholder="0.00" /></label>
+                  <label style={s.label}>Firma Minimum Fiyatı<input type="number" step="0.0001" min="0" value={form.brand_min_price} onChange={(e) => handleFormChange('brand_min_price', e.target.value)} style={s.input} placeholder="4700.00" /></label>
                   <label style={s.label}>Para Birimi
                     <select value={form.currency} onChange={(e) => handleFormChange('currency', e.target.value)} style={s.input}>
                       {['TRY','USD','EUR','GBP'].map((c) => <option key={c} value={c}>{c}</option>)}
