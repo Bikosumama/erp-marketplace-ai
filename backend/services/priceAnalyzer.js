@@ -2,16 +2,23 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
-const { buildRecommendation, toNumber, resolveScopedRule } = require('../services/priceAnalyzer');
 
-// Excel Okumak için Gerekli Kütüphaneler (Eğer daha önce yüklemediysen: npm install exceljs multer)
+// Sadece en temel fonksiyonu servisten alıyoruz (hata riskini sıfıra indirdik)
+const { buildRecommendation, resolveScopedRule } = require('../services/priceAnalyzer');
+
+// Excel Okumak için Gerekli Kütüphaneler
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 const ExcelJS = require('exceljs');
 
 router.use(authMiddleware);
 
-// --- YARDIMCI FONKSİYONLAR ---
+// --- YARDIMCI FONKSİYONLAR (Hata vermemesi için buraya sabitledik) ---
+
+function toNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
 
 async function getMarketplaceIdForProduct(productId, preferredMarketplaceId = null) {
   if (preferredMarketplaceId) return Number(preferredMarketplaceId);
@@ -36,11 +43,11 @@ async function getRuleBundle(product, marketplaceId) {
   };
 
   const marketplaceRulesRes = await pool.query(`SELECT * FROM marketplace_rules WHERE is_active = TRUE`);
-  const marketplaceRule = resolveScopedRule(marketplaceRulesRes.rows, context);
+  const marketplaceRule = resolveScopedRule ? resolveScopedRule(marketplaceRulesRes.rows, context) : marketplaceRulesRes.rows[0];
 
   const shippingRulesRes = await pool.query(`SELECT * FROM shipping_rules WHERE is_active = TRUE`);
   const profitTargetsRes = await pool.query(`SELECT * FROM profit_targets WHERE is_active = TRUE`);
-  const profitTarget = resolveScopedRule(profitTargetsRes.rows, context);
+  const profitTarget = resolveScopedRule ? resolveScopedRule(profitTargetsRes.rows, context) : profitTargetsRes.rows[0];
 
   let extraDeductions = [];
   if (marketplaceRule?.id) {
@@ -89,6 +96,16 @@ async function upsertRecommendation(client, payload) {
   return rec;
 }
 
+async function createAlerts(client, recommendationId, productId, marketplaceId, alertItems = []) {
+  for (const alert of alertItems) {
+    await client.query(
+      `INSERT INTO alerts (product_id, marketplace_id, alert_type, severity, title, message)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [productId, marketplaceId, alert.type || 'generic_alert', alert.severity || 'medium', alert.title || 'Fiyat uyarısı', alert.message || '']
+    );
+  }
+}
+
 async function analyzeSingleProduct(product, marketplaceId, actorName) {
   const client = await pool.connect();
   try {
@@ -110,11 +127,19 @@ async function analyzeSingleProduct(product, marketplaceId, actorName) {
       metadata: { product_name: product.name, stock_code: product.stock_code, ...analysis.metadata }
     });
 
+    if (analysis.alerts && analysis.alerts.length > 0) {
+      await createAlerts(client, rec.id, product.id, resolvedMarketplaceId, analysis.alerts);
+    }
+
     await client.query(`INSERT INTO audit_logs (user_name, action_type, entity_type, entity_id, after_json) VALUES ($1, 'analyze_price', 'product', $2, $3::jsonb)`, [actorName, product.id, JSON.stringify(rec)]);
     await client.query('COMMIT');
     return rec;
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
-  finally { client.release(); }
+  } catch (error) { 
+    await client.query('ROLLBACK'); 
+    throw error; 
+  } finally { 
+    client.release(); 
+  }
 }
 
 // --- ROTALAR (API ENDPOINTS) ---
@@ -142,7 +167,7 @@ router.get('/recommendations', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- IMPORT EXCEL ---
+// --- YENİ EKLENEN SORUNSUZ EXCEL IMPORT ROTASI ---
 router.post('/import-and-analyze', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Dosya yüklenmedi' });
@@ -157,8 +182,12 @@ router.post('/import-and-analyze', upload.single('file'), async (req, res) => {
       if (!stockCode) continue;
       const productRes = await pool.query('SELECT * FROM products WHERE stock_code = $1', [stockCode]);
       if (productRes.rows.length > 0) {
-        const rec = await analyzeSingleProduct(productRes.rows[0], null, actorName);
-        results.push({ stockCode, status: 'Success' });
+        try {
+          await analyzeSingleProduct(productRes.rows[0], null, actorName);
+          results.push({ stockCode, status: 'Success' });
+        } catch(analyzeErr) {
+          results.push({ stockCode, status: 'Error', message: analyzeErr.message });
+        }
       } else {
         results.push({ stockCode, status: 'Not Found' });
       }
@@ -190,10 +219,5 @@ router.post('/recommendations/:id/reject', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// CRITICAL FIX: Bu bir router dosyasıdır, router'ı export etmelisin!
-// backend/services/priceAnalyzer.js dosyasının en altı
-module.exports = {
-    buildRecommendation,
-    toNumber,
-    resolveScopedRule
-};
+// EN KRİTİK KISIM: DOĞRU DIŞA AKTARIM
+module.exports = router;
