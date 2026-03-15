@@ -53,7 +53,7 @@ const authLimiter = rateLimit({
 });
 
 // ✅ Auth middleware
-const { authenticateToken } = require('./middleware/auth');
+const authenticateToken = require('./middleware/auth');
 
 // Health check - DB bağlantısını da kontrol eder
 app.get('/api/health', async (req, res) => {
