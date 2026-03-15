@@ -1,407 +1,473 @@
-const DEFAULT_VAT_RATE = 20;
-const DEFAULT_ROUNDING_ENDING = 0.90;
+const express = require('express');
+const router = express.Router();
+const pool = require('../config/database');
+const authMiddleware = require('../middleware/auth');
+const { buildRecommendation, toNumber, resolveScopedRule } = require('../services/priceAnalyzer');
 
-function toNumber(value, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
+router.use(authMiddleware);
+
+async function getMarketplaceIdForProduct(productId, preferredMarketplaceId = null) {
+  if (preferredMarketplaceId) return Number(preferredMarketplaceId);
+  const identifierRes = await pool.query(
+    `SELECT marketplace_id FROM product_marketplace_identifiers
+     WHERE product_id = $1 AND is_active = TRUE
+     ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT 1`,
+    [productId]
+  );
+  if (identifierRes.rows.length) return identifierRes.rows[0].marketplace_id;
+  const fallbackRes = await pool.query(
+    `SELECT id FROM marketplaces WHERE is_active = TRUE ORDER BY id ASC LIMIT 1`
+  );
+  return fallbackRes.rows[0]?.id || null;
 }
 
-function toRate(value) {
-  return toNumber(value, 0) / 100;
+async function getRuleBundle(product, marketplaceId) {
+  const context = {
+    marketplaceId,
+    categoryId: product.category_id || null,
+    productId: product.id,
+  };
+
+  // Tüm marketplace rules çek, scope'a göre en iyisini seç
+  const marketplaceRulesRes = await pool.query(
+    `SELECT * FROM marketplace_rules WHERE is_active = TRUE`
+  );
+  const marketplaceRule = resolveScopedRule(marketplaceRulesRes.rows, context);
+
+  // Tüm shipping rules çek
+  const shippingRulesRes = await pool.query(
+    `SELECT * FROM shipping_rules WHERE is_active = TRUE`
+  );
+  const shippingRules = shippingRulesRes.rows;
+
+  // Profit targets çek
+  const profitTargetsRes = await pool.query(
+    `SELECT * FROM profit_targets WHERE is_active = TRUE`
+  );
+  const profitTarget = resolveScopedRule(profitTargetsRes.rows, context);
+
+  // Extra deductions çek
+  let extraDeductions = [];
+  if (marketplaceRule?.id) {
+    const extraRes = await pool.query(
+      `SELECT * FROM marketplace_extra_deductions
+       WHERE marketplace_rule_id = $1 AND is_active = TRUE
+       ORDER BY priority ASC`,
+      [marketplaceRule.id]
+    );
+    extraDeductions = extraRes.rows;
+  }
+
+  return { marketplaceRule, shippingRules, profitTarget, extraDeductions };
 }
 
-function round2(value) {
-  return Math.round((toNumber(value) + Number.EPSILON) * 100) / 100;
+async function getLatestCompetitorPrice(productId, marketplaceId) {
+  const result = await pool.query(
+    `SELECT competitor_price FROM competitor_prices
+     WHERE product_id = $1 AND ($2::int IS NULL OR marketplace_id = $2)
+     ORDER BY observed_at DESC, id DESC LIMIT 1`,
+    [productId, marketplaceId]
+  );
+  return result.rows[0]?.competitor_price ?? null;
 }
 
-function roundUpToEnding(price, ending = DEFAULT_ROUNDING_ENDING) {
-  const safePrice = toNumber(price, 0);
-  const safeEnding = toNumber(ending, DEFAULT_ROUNDING_ENDING);
-  const whole = Math.floor(safePrice);
-  const candidate = whole + safeEnding;
-  if (safePrice <= candidate) return round2(candidate);
-  return round2(whole + 1 + safeEnding);
+async function upsertRecommendation(client, payload) {
+  const insertRes = await client.query(
+    `INSERT INTO price_recommendations (
+       product_id, marketplace_id, current_price, recommended_price, floor_price, target_price,
+       protected_floor, brand_min_price, marketplace_discount_rate, discount_adjusted_protected_price,
+       customer_seen_price, shipping_cost, commission_amount, extra_deductions_total,
+       competitor_price, current_margin_rate, projected_margin_rate, profit_margin,
+       recommendation_type, risk_level, confidence, quality_score, reason_text, metadata, status
+     ) VALUES (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24::jsonb,$25
+     ) RETURNING *`,
+    [
+      payload.product_id, payload.marketplace_id,
+      payload.current_price, payload.recommended_price,
+      payload.floor_price, payload.target_price,
+      payload.protected_floor, payload.brand_min_price,
+      payload.marketplace_discount_rate, payload.discount_adjusted_protected_price,
+      payload.customer_seen_price, payload.shipping_cost,
+      payload.commission_amount, payload.extra_deductions_total,
+      payload.competitor_price, payload.current_margin_rate,
+      payload.projected_margin_rate, payload.profit_margin,
+      payload.recommendation_type, payload.risk_level,
+      payload.confidence, payload.quality_score,
+      payload.reason_text, JSON.stringify(payload.metadata || {}), 'pending',
+    ]
+  );
+
+  const recommendation = insertRes.rows[0];
+
+  await client.query(
+    `INSERT INTO approvals (entity_type, entity_id, action_type, proposed_payload, status)
+     VALUES ('price_recommendation', $1, 'apply_price', $2::jsonb, 'pending')`,
+    [recommendation.id, JSON.stringify(recommendation)]
+  );
+
+  return recommendation;
 }
 
-function isRowActive(row) {
-  if (!row) return false;
-  if (row.is_active === 0 || row.is_active === false) return false;
-  const now = new Date();
-  if (row.valid_from && new Date(row.valid_from) > now) return false;
-  if (row.valid_to && new Date(row.valid_to) < now) return false;
-  return true;
-}
-
-function resolveScopedRule(rows = [], context = {}) {
-  const { marketplaceId = null, categoryId = null, productId = null } = context;
-
-  const scored = rows
-    .filter(isRowActive)
-    .map((row) => {
-      let score = -1;
-      if (row.scope_type === 'product' && String(row.product_id) === String(productId)) score = 400;
-      else if (row.scope_type === 'category' && String(row.category_id) === String(categoryId)) score = 300;
-      else if (row.scope_type === 'marketplace' && String(row.marketplace_id) === String(marketplaceId)) score = 200;
-      else if (row.scope_type === 'general' || row.marketplace_id == null) score = 100;
-
-      return {
-        row,
-        score,
-        priority: toNumber(row.priority, 0),
-        updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
-      };
-    })
-    .filter((x) => x.score >= 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.priority !== a.priority) return b.priority - a.priority;
-      return b.updatedAt - a.updatedAt;
-    });
-
-  return scored.length ? scored[0].row : null;
-}
-
-function resolveShippingRuleByPrice(rows = [], context = {}) {
-  const { marketplaceId = null, listingPrice = 0 } = context;
-
-  const scored = rows
-    .filter(isRowActive)
-    .filter((row) => {
-      const minPrice = toNumber(row.min_price, 0);
-      const maxPrice = row.max_price == null ? Number.MAX_SAFE_INTEGER : toNumber(row.max_price, Number.MAX_SAFE_INTEGER);
-      return toNumber(listingPrice, 0) >= minPrice && toNumber(listingPrice, 0) <= maxPrice;
-    })
-    .map((row) => {
-      let score = -1;
-      if (row.scope_type === 'marketplace' && String(row.marketplace_id) === String(marketplaceId)) score = 200;
-      else if (row.scope_type === 'general' || row.marketplace_id == null) score = 100;
-      return { row, score, priority: toNumber(row.priority, 0) };
-    })
-    .filter((x) => x.score >= 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return b.priority - a.priority;
-    });
-
-  return scored.length ? scored[0].row : null;
-}
-
-function getBaseAmount(baseAmountType, ctx) {
-  switch (baseAmountType) {
-    case 'gross_price':
-      return ctx.grossPrice;
-    case 'net_after_commission':
-      return Math.max(0, ctx.netExVat - ctx.commissionAmount - ctx.fixedFeeAmount);
-    case 'net_ex_vat':
-    default:
-      return ctx.netExVat;
+async function createAlerts(client, recommendationId, productId, marketplaceId, alertItems = []) {
+  for (const alert of alertItems) {
+    await client.query(
+      `INSERT INTO alerts (product_id, marketplace_id, alert_type, severity, title, message)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [productId, marketplaceId, alert.type || 'generic_alert', alert.severity || 'medium', alert.title || 'Fiyat uyarısı', alert.message || '']
+    );
   }
 }
 
-function calculateExtraDeductions(extraDeductions = [], ctx) {
-  const items = [...extraDeductions]
-    .filter(isRowActive)
-    .sort((a, b) => toNumber(a.priority, 0) - toNumber(b.priority, 0))
-    .map((item) => {
-      const calculationType = item.calculation_type || 'percentage';
-      const baseAmountType = item.base_amount_type || 'net_ex_vat';
-      const baseAmount = getBaseAmount(baseAmountType, ctx);
-      const amount = calculationType === 'fixed'
-        ? toNumber(item.fixed_amount, 0)
-        : baseAmount * toRate(item.rate);
+async function analyzeSingleProduct(product, marketplaceId, actorName) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-      return {
-        id: item.id || null,
-        name: item.name || 'Ek Kesinti',
-        deduction_type: item.deduction_type || 'other',
-        calculation_type: calculationType,
-        base_amount_type: baseAmountType,
-        base_amount: round2(baseAmount),
-        amount: round2(amount),
-      };
-    });
+    const resolvedMarketplaceId = await getMarketplaceIdForProduct(product.id, marketplaceId);
+    const { marketplaceRule, shippingRules, profitTarget, extraDeductions } = await getRuleBundle(product, resolvedMarketplaceId);
+    const competitorPrice = await getLatestCompetitorPrice(product.id, resolvedMarketplaceId);
 
-  return {
-    items,
-    total: round2(items.reduce((sum, item) => sum + item.amount, 0)),
-  };
-}
+    const minMarginRate = toNumber(profitTarget?.min_margin_rate ?? marketplaceRule?.min_margin_rate ?? 10, 10);
+    const targetMarginRate = toNumber(profitTarget?.target_margin_rate ?? marketplaceRule?.target_margin_rate ?? 18, 18);
 
-function calculateBreakdown({
-  listingPrice,
-  product,
-  marketplaceRule,
-  shippingRule = null,
-  extraDeductions = [],
-}) {
-  const grossPrice = toNumber(listingPrice, 0);
-  const purchasePrice = toNumber(
-    product.purchase_price ?? product.cost ?? product.cost_price ?? product.buying_price,
-    0
-  );
-  const vatRate = toRate(marketplaceRule?.vat_rate ?? product?.vat_rate ?? DEFAULT_VAT_RATE);
-  const commissionRate = toRate(marketplaceRule?.commission_rate);
-  const commissionBase = marketplaceRule?.commission_base || 'net_ex_vat';
-  const fixedFeeAmount = toNumber(marketplaceRule?.fixed_fee, 0);
-  const shippingCost = toNumber(shippingRule?.shipping_cost ?? shippingRule?.shipping_fee ?? 0, 0);
-  const netExVat = grossPrice / (1 + vatRate);
-
-  const commissionBaseAmount = getBaseAmount(commissionBase, {
-    grossPrice,
-    netExVat,
-    commissionAmount: 0,
-    fixedFeeAmount,
-  });
-  const commissionAmount = round2(commissionBaseAmount * commissionRate);
-
-  const extra = calculateExtraDeductions(extraDeductions, {
-    grossPrice,
-    netExVat,
-    commissionAmount,
-    fixedFeeAmount,
-  });
-
-  const totalDeductions = round2(commissionAmount + fixedFeeAmount + shippingCost + extra.total);
-  const profit = round2(netExVat - purchasePrice - totalDeductions);
-  const marginRate = netExVat > 0 ? round2((profit / netExVat) * 100) : 0;
-
-  return {
-    listing_price: round2(grossPrice),
-    net_ex_vat: round2(netExVat),
-    purchase_price: round2(purchasePrice),
-    commission_amount: round2(commissionAmount),
-    fixed_fee_amount: round2(fixedFeeAmount),
-    shipping_cost: round2(shippingCost),
-    shipping_rule_id: shippingRule?.id || null,
-    shipping_rule_scope: shippingRule?.scope_type || null,
-    extra_deductions: extra.items,
-    extra_deductions_total: round2(extra.total),
-    total_deductions: round2(totalDeductions),
-    profit: round2(profit),
-    margin_rate: round2(marginRate),
-  };
-}
-
-function calculateBreakdownWithDynamicShipping({ listingPrice, product, marketplaceRule, shippingRules = [], extraDeductions = [] }) {
-  const shippingRule = resolveShippingRuleByPrice(shippingRules, {
-    marketplaceId: marketplaceRule?.marketplace_id || null,
-    listingPrice,
-  });
-
-  return {
-    breakdown: calculateBreakdown({ listingPrice, product, marketplaceRule, shippingRule, extraDeductions }),
-    shippingRule,
-  };
-}
-
-function findListingPriceForMargin({ product, marketplaceRule, shippingRules = [], extraDeductions = [], requiredMarginRate = 0, startPrice = 1 }) {
-  const targetMargin = toNumber(requiredMarginRate, 0);
-
-  let low = Math.max(toNumber(startPrice, 1), 1);
-  let high = Math.max(low, 100);
-
-  let { breakdown: highBreakdown } = calculateBreakdownWithDynamicShipping({
-    listingPrice: high,
-    product,
-    marketplaceRule,
-    shippingRules,
-    extraDeductions,
-  });
-
-  let guard = 0;
-  while (highBreakdown.margin_rate < targetMargin && guard < 40) {
-    high = high * 1.25;
-    ({ breakdown: highBreakdown } = calculateBreakdownWithDynamicShipping({
-      listingPrice: high,
+    const analysis = buildRecommendation({
       product,
       marketplaceRule,
       shippingRules,
       extraDeductions,
-    }));
-    guard += 1;
-  }
-
-  for (let i = 0; i < 40; i += 1) {
-    const mid = (low + high) / 2;
-    const { breakdown: midBreakdown } = calculateBreakdownWithDynamicShipping({
-      listingPrice: mid,
-      product,
-      marketplaceRule,
-      shippingRules,
-      extraDeductions,
+      brandMinPrice: toNumber(product.brand_min_price, 0),
+      minMarginRate,
+      targetMarginRate,
+      competitorPrice,
     });
 
-    if (midBreakdown.margin_rate >= targetMargin) high = mid;
-    else low = mid;
-  }
+    const recommendation = await upsertRecommendation(client, {
+      product_id: product.id,
+      marketplace_id: resolvedMarketplaceId,
+      current_price: analysis.currentPrice,
+      recommended_price: analysis.recommendedPrice,
+      floor_price: analysis.floorPrice,
+      target_price: analysis.targetPrice,
+      protected_floor: analysis.metadata?.protected_floor || 0,
+      brand_min_price: analysis.metadata?.brand_min_price || 0,
+      marketplace_discount_rate: analysis.metadata?.marketplace_discount_rate || 0,
+      discount_adjusted_protected_price: analysis.metadata?.discount_adjusted_protected_price || 0,
+      customer_seen_price: analysis.metadata?.customer_seen_price || 0,
+      shipping_cost: analysis.metadata?.shipping_cost || 0,
+      commission_amount: analysis.metadata?.commission_amount || 0,
+      extra_deductions_total: analysis.metadata?.extra_deductions_total || 0,
+      competitor_price: analysis.competitorPrice,
+      current_margin_rate: analysis.currentMarginRate,
+      projected_margin_rate: analysis.projectedMarginRate,
+      profit_margin: analysis.profitMargin,
+      recommendation_type: analysis.recommendationType,
+      risk_level: analysis.riskLevel,
+      confidence: analysis.confidence,
+      quality_score: analysis.qualityScore,
+      reason_text: analysis.reasonText,
+      metadata: {
+        product_name: product.name,
+        stock_code: product.stock_code,
+        marketplace_rule_id: marketplaceRule?.id || null,
+        profit_target_id: profitTarget?.id || null,
+        reasons: analysis.reasons,
+        ...analysis.metadata,
+      },
+    });
 
-  return round2(high);
+    await createAlerts(client, recommendation.id, product.id, resolvedMarketplaceId, analysis.alerts);
+
+    await client.query(
+      `INSERT INTO audit_logs (user_name, action_type, entity_type, entity_id, before_json, after_json)
+       VALUES ($1, 'analyze_price', 'product', $2, '{}'::jsonb, $3::jsonb)`,
+      [actorName || 'system', product.id, JSON.stringify(recommendation)]
+    );
+
+    await client.query('COMMIT');
+
+    return {
+      id: recommendation.id,
+      product_id: recommendation.product_id,
+      marketplace_id: recommendation.marketplace_id,
+      product_name: product.name,
+      stock_code: product.stock_code,
+      current_price: Number(recommendation.current_price),
+      recommended_price: Number(recommendation.recommended_price),
+      floor_price: Number(recommendation.floor_price),
+      target_price: Number(recommendation.target_price),
+      protected_floor: Number(recommendation.protected_floor),
+      customer_seen_price: Number(recommendation.customer_seen_price),
+      competitor_price: recommendation.competitor_price == null ? null : Number(recommendation.competitor_price),
+      current_margin_rate: Number(recommendation.current_margin_rate),
+      projected_margin_rate: Number(recommendation.projected_margin_rate),
+      profit_margin: Number(recommendation.profit_margin),
+      recommendation_type: recommendation.recommendation_type,
+      risk_level: recommendation.risk_level,
+      confidence: Number(recommendation.confidence),
+      quality_score: recommendation.quality_score,
+      reason: recommendation.reason_text,
+      status: recommendation.status,
+      created_at: recommendation.created_at,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-function buildRecommendation({
-  product,
-  marketplaceRule,
-  shippingRules = [],
-  extraDeductions = [],
-  brandMinPrice = 0,
-  minMarginRate = 0,
-  targetMarginRate = 0,
-  competitorPrice = null,
-}) {
-  const currentPrice = toNumber(product.sale_price ?? product.price, 0);
-  const safeBrandMinPrice = toNumber(brandMinPrice || product.brand_min_price || product.minimum_allowed_price, 0);
-  const marketplaceDiscountRate = toRate(marketplaceRule?.marketplace_discount_rate);
-  const marketplaceDiscountFunded = marketplaceRule?.marketplace_discount_funded === 1 || marketplaceRule?.marketplace_discount_funded === true;
-  const roundingEnding = toNumber(marketplaceRule?.rounding_ending, DEFAULT_ROUNDING_ENDING);
-
-  const profitFloor = findListingPriceForMargin({
-    product,
-    marketplaceRule,
-    shippingRules,
-    extraDeductions,
-    requiredMarginRate: minMarginRate,
-    startPrice: Math.max(currentPrice, toNumber(product.cost, 0), safeBrandMinPrice, 1),
-  });
-
-  const targetProfitPrice = findListingPriceForMargin({
-    product,
-    marketplaceRule,
-    shippingRules,
-    extraDeductions,
-    requiredMarginRate: targetMarginRate,
-    startPrice: Math.max(profitFloor, safeBrandMinPrice, currentPrice, 1),
-  });
-
-  const protectedFloor = round2(Math.max(profitFloor, safeBrandMinPrice));
-  const discountAdjustedProtectedPrice = marketplaceDiscountFunded && marketplaceDiscountRate > 0
-    ? round2(protectedFloor / (1 - marketplaceDiscountRate))
-    : protectedFloor;
-
-  const rawFinalListingPrice = round2(Math.max(discountAdjustedProtectedPrice, targetProfitPrice));
-  const finalListingPrice = roundUpToEnding(rawFinalListingPrice, roundingEnding);
-
-  const { breakdown: currentBreakdown } = calculateBreakdownWithDynamicShipping({
-    listingPrice: currentPrice || finalListingPrice,
-    product,
-    marketplaceRule,
-    shippingRules,
-    extraDeductions,
-  });
-
-  const { breakdown: finalBreakdown, shippingRule } = calculateBreakdownWithDynamicShipping({
-    listingPrice: finalListingPrice,
-    product,
-    marketplaceRule,
-    shippingRules,
-    extraDeductions,
-  });
-
-  const customerSeenPrice = marketplaceDiscountFunded && marketplaceDiscountRate > 0
-    ? round2(finalListingPrice * (1 - marketplaceDiscountRate))
-    : finalListingPrice;
-
-  let recommendationType = 'hold';
-  if (currentPrice > 0) {
-    if (finalListingPrice > currentPrice) recommendationType = 'increase';
-    else if (finalListingPrice < currentPrice) recommendationType = 'decrease';
+// GET /api/price-analysis/summary
+router.get('/summary', async (req, res) => {
+  try {
+    const [recommendationsRes, alertsRes, historyRes] = await Promise.all([
+      pool.query(`
+        SELECT COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+          COUNT(*) FILTER (WHERE status = 'applied')::int AS applied,
+          COUNT(*) FILTER (WHERE risk_level = 'high')::int AS high_risk
+        FROM price_recommendations
+      `),
+      pool.query(`
+        SELECT COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE is_resolved = FALSE)::int AS open,
+          COUNT(*) FILTER (WHERE severity = 'high' AND is_resolved = FALSE)::int AS critical
+        FROM alerts
+      `),
+      pool.query(`SELECT COUNT(*)::int AS total FROM price_history`),
+    ]);
+    res.json({ summary: { recommendations: recommendationsRes.rows[0], alerts: alertsRes.rows[0], history: historyRes.rows[0] } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
+});
 
-  const competitorNumber = competitorPrice == null ? null : toNumber(competitorPrice, null);
-  let riskLevel = 'low';
-  const alerts = [];
+// GET /api/price-analysis/recommendations
+router.get('/recommendations', async (req, res) => {
+  try {
+    const { status, product_id } = req.query;
+    const params = [];
+    const where = [];
+    if (status) { params.push(status); where.push(`pr.status = $${params.length}`); }
+    if (product_id) { params.push(Number(product_id)); where.push(`pr.product_id = $${params.length}`); }
 
-  if (finalBreakdown.margin_rate < toNumber(minMarginRate, 0) + 2) riskLevel = 'medium';
-  if (finalBreakdown.margin_rate < toNumber(minMarginRate, 0)) riskLevel = 'high';
-  if (safeBrandMinPrice > 0 && customerSeenPrice < safeBrandMinPrice) {
-    riskLevel = 'high';
-    alerts.push({ type: 'brand_min_violation', severity: 'high', title: 'Firma alt fiyat koruması', message: 'Hesaplanan müşteri fiyatı firma minimum fiyatının altına düşüyor.' });
+    const result = await pool.query(
+      `SELECT pr.*, p.name AS product_name, p.stock_code, m.marketplace_name
+       FROM price_recommendations pr
+       JOIN products p ON p.id = pr.product_id
+       LEFT JOIN marketplaces m ON m.id = pr.marketplace_id
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY pr.created_at DESC, pr.id DESC LIMIT 200`,
+      params
+    );
+
+    res.json({
+      recommendations: result.rows.map((row) => ({
+        id: row.id,
+        product_id: row.product_id,
+        product_name: row.product_name,
+        stock_code: row.stock_code,
+        marketplace_id: row.marketplace_id,
+        marketplace_name: row.marketplace_name,
+        current_price: Number(row.current_price),
+        recommended_price: Number(row.recommended_price),
+        floor_price: Number(row.floor_price),
+        target_price: Number(row.target_price),
+        protected_floor: Number(row.protected_floor || 0),
+        customer_seen_price: Number(row.customer_seen_price || 0),
+        competitor_price: row.competitor_price == null ? null : Number(row.competitor_price),
+        current_margin_rate: Number(row.current_margin_rate),
+        projected_margin_rate: Number(row.projected_margin_rate),
+        recommendation_type: row.recommendation_type,
+        risk_level: row.risk_level,
+        confidence: Number(row.confidence),
+        quality_score: row.quality_score,
+        reason: row.reason_text,
+        status: row.status,
+        created_at: row.created_at,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  if (competitorNumber != null && competitorNumber < protectedFloor) {
-    alerts.push({ type: 'competitor_below_floor', severity: 'medium', title: 'Rakip fiyat baskısı', message: 'Rakip fiyatı korunacak tabanın altında görünüyor.' });
+});
+
+// GET /api/price-analysis/history
+router.get('/history', async (req, res) => {
+  try {
+    const { product_id } = req.query;
+    const params = [];
+    const where = [];
+    if (product_id) { params.push(Number(product_id)); where.push(`ph.product_id = $${params.length}`); }
+
+    const result = await pool.query(
+      `SELECT ph.*, p.name AS product_name, p.stock_code, m.marketplace_name
+       FROM price_history ph
+       JOIN products p ON p.id = ph.product_id
+       LEFT JOIN marketplaces m ON m.id = ph.marketplace_id
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY ph.created_at DESC, ph.id DESC LIMIT 200`,
+      params
+    );
+
+    res.json({
+      history: result.rows.map((row) => ({
+        id: row.id,
+        product_id: row.product_id,
+        product_name: row.product_name,
+        stock_code: row.stock_code,
+        marketplace_name: row.marketplace_name,
+        old_price: Number(row.old_price),
+        new_price: Number(row.new_price),
+        change_reason: row.change_reason,
+        changed_by: row.changed_by,
+        date: row.created_at,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
+});
 
-  const reasons = [
-    `Karlılık tabanı: ${profitFloor.toFixed(2)} TL`,
-    `Firma minimum fiyatı: ${safeBrandMinPrice.toFixed(2)} TL`,
-    `Korunan taban: ${protectedFloor.toFixed(2)} TL`,
-    marketplaceDiscountFunded && marketplaceDiscountRate > 0
-      ? `Pazaryeri indirimi: %${(marketplaceDiscountRate * 100).toFixed(2)}`
-      : 'Pazaryeri indirimi uygulanmıyor',
-    `İndirim düzeltilmiş gönderim fiyatı: ${discountAdjustedProtectedPrice.toFixed(2)} TL`,
-    `Hedef karlılık fiyatı: ${targetProfitPrice.toFixed(2)} TL`,
-    `Yuvarlanmış nihai gönderim fiyatı: ${finalListingPrice.toFixed(2)} TL`,
-    `Müşteri fiyatı: ${customerSeenPrice.toFixed(2)} TL`,
-    `Kargo kuralı: ${shippingRule?.scope_type || 'yok'} / ${shippingRule?.shipping_cost != null ? `${round2(shippingRule.shipping_cost).toFixed(2)} TL` : '0.00 TL'}`,
-  ];
+// GET /api/price-analysis/alerts
+router.get('/alerts', async (req, res) => {
+  try {
+    const { product_id, open_only } = req.query;
+    const params = [];
+    const where = [];
+    if (product_id) { params.push(Number(product_id)); where.push(`a.product_id = $${params.length}`); }
+    if (open_only === 'true') where.push(`a.is_resolved = FALSE`);
 
-  const qualityScore = Math.max(
-    0,
-    100
-      - (product.cost ? 0 : 20)
-      - (marketplaceRule ? 0 : 20)
-      - (shippingRule ? 0 : 10)
-      - (safeBrandMinPrice > 0 ? 0 : 5)
-  );
+    const result = await pool.query(
+      `SELECT a.*, p.name AS product_name, p.stock_code, m.marketplace_name
+       FROM alerts a
+       LEFT JOIN products p ON p.id = a.product_id
+       LEFT JOIN marketplaces m ON m.id = a.marketplace_id
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY a.created_at DESC, a.id DESC LIMIT 100`,
+      params
+    );
+    res.json({ alerts: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-  return {
-    currentPrice: round2(currentPrice),
-    recommendedPrice: round2(finalListingPrice),
-    floorPrice: round2(profitFloor),
-    targetPrice: round2(targetProfitPrice),
-    currentMarginRate: currentBreakdown.margin_rate,
-    projectedMarginRate: finalBreakdown.margin_rate,
-    profitMargin: finalBreakdown.profit,
-    recommendationType,
-    riskLevel,
-    confidence: riskLevel === 'high' ? 0.72 : riskLevel === 'medium' ? 0.84 : 0.93,
-    qualityScore,
-    competitorPrice: competitorNumber,
-    reasonText: reasons.join(' | '),
-    reasons,
-    alerts,
-    metadata: {
-      brand_min_price: round2(safeBrandMinPrice),
-      protected_floor: round2(protectedFloor),
-      marketplace_discount_rate: round2(marketplaceDiscountRate * 100),
-      discount_adjusted_protected_price: round2(discountAdjustedProtectedPrice),
-      raw_final_listing_price: round2(rawFinalListingPrice),
-      final_listing_price: round2(finalListingPrice),
-      customer_seen_price: round2(customerSeenPrice),
-      shipping_cost: finalBreakdown.shipping_cost,
-      shipping_rule_id: shippingRule?.id || null,
-      shipping_rule_scope: shippingRule?.scope_type || null,
-      shipping_min_price: shippingRule?.min_price == null ? null : round2(shippingRule.min_price),
-      shipping_max_price: shippingRule?.max_price == null ? null : round2(shippingRule.max_price),
-      commission_amount: finalBreakdown.commission_amount,
-      extra_deductions_total: finalBreakdown.extra_deductions_total,
-      extra_deductions: finalBreakdown.extra_deductions,
-      breakdown: finalBreakdown,
-    },
+// POST /api/price-analysis/analyze
+router.post('/analyze', async (req, res) => {
+  try {
+    const { product_id, marketplace_id } = req.body || {};
+    const actorName = req.user?.email || req.user?.name || 'system';
 
-    recommendation_type: recommendationType,
-    current_price: round2(currentPrice),
-    profit_floor: round2(profitFloor),
-    target_profit_price: round2(targetProfitPrice),
-    brand_min_price: round2(safeBrandMinPrice),
-    protected_floor: round2(protectedFloor),
-    marketplace_discount_rate: round2(marketplaceDiscountRate * 100),
-    discount_adjusted_protected_price: round2(discountAdjustedProtectedPrice),
-    raw_final_listing_price: round2(rawFinalListingPrice),
-    final_listing_price: round2(finalListingPrice),
-    customer_seen_price: round2(customerSeenPrice),
-    projected_profit: finalBreakdown.profit,
-    projected_margin_rate: finalBreakdown.margin_rate,
-  };
-}
+    const productsRes = product_id
+      ? await pool.query(`SELECT * FROM products WHERE id = $1`, [Number(product_id)])
+      : await pool.query(`SELECT * FROM products WHERE status = 'active' ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT 100`);
 
-module.exports = {
-  toNumber,
-  toRate,
-  round2,
-  roundUpToEnding,
-  resolveScopedRule,
-  resolveShippingRuleByPrice,
-  calculateExtraDeductions,
-  calculateBreakdown,
-  buildRecommendation,
-};
+    if (!productsRes.rows.length) return res.status(404).json({ error: 'Analiz edilecek ürün bulunamadı' });
+
+    const recommendations = [];
+    const errors = [];
+
+    for (const product of productsRes.rows) {
+      try {
+        const recommendation = await analyzeSingleProduct(product, marketplace_id, actorName);
+        recommendations.push(recommendation);
+      } catch (err) {
+        errors.push({ product_id: product.id, stock_code: product.stock_code, error: err.message });
+      }
+    }
+
+    res.json({
+      message: product_id ? 'Ürün analizi tamamlandı' : 'Toplu fiyat analizi tamamlandı',
+      count: recommendations.length,
+      errors,
+      recommendations,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/price-analysis/recommendations/:id/apply
+router.post('/recommendations/:id/apply', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const recommendationId = Number(req.params.id);
+    if (!recommendationId) return res.status(400).json({ error: 'Geçersiz öneri ID' });
+
+    await client.query('BEGIN');
+
+    const recRes = await client.query(
+      `SELECT pr.*, p.name AS product_name FROM price_recommendations pr
+       JOIN products p ON p.id = pr.product_id WHERE pr.id = $1 LIMIT 1`,
+      [recommendationId]
+    );
+    if (!recRes.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Öneri bulunamadı' }); }
+
+    const recommendation = recRes.rows[0];
+    if (recommendation.status === 'applied') { await client.query('ROLLBACK'); return res.status(409).json({ error: 'Bu öneri zaten uygulanmış' }); }
+
+    const productBeforeRes = await client.query(`SELECT * FROM products WHERE id = $1`, [recommendation.product_id]);
+    const productBefore = productBeforeRes.rows[0];
+
+    await client.query(`UPDATE products SET sale_price = $1, updated_at = NOW() WHERE id = $2`, [recommendation.recommended_price, recommendation.product_id]);
+
+    await client.query(
+      `INSERT INTO price_history (product_id, marketplace_id, old_price, new_price, change_reason, changed_by)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [recommendation.product_id, recommendation.marketplace_id, recommendation.current_price, recommendation.recommended_price,
+       recommendation.reason_text || 'Fiyat analizi önerisi uygulandı', req.user?.email || 'system']
+    );
+
+    await client.query(`UPDATE price_recommendations SET status = 'applied', approved_at = NOW(), applied_at = NOW() WHERE id = $1`, [recommendationId]);
+
+    await client.query(
+      `UPDATE approvals SET status = 'approved', approved_by = $1, approved_at = NOW()
+       WHERE entity_type = 'price_recommendation' AND entity_id = $2 AND status = 'pending'`,
+      [req.user?.email || 'system', recommendationId]
+    );
+
+    await client.query(
+      `INSERT INTO audit_logs (user_name, action_type, entity_type, entity_id, before_json, after_json)
+       VALUES ($1, 'apply_price_recommendation', 'product', $2, $3::jsonb, $4::jsonb)`,
+      [req.user?.email || 'system', recommendation.product_id, JSON.stringify(productBefore || {}),
+       JSON.stringify({ ...productBefore, sale_price: recommendation.recommended_price })]
+    );
+
+    if (recommendation.risk_level === 'high') {
+      await client.query(
+        `INSERT INTO alerts (product_id, marketplace_id, alert_type, severity, title, message, is_resolved)
+         VALUES ($1,$2,'manual_followup','medium','Manuel takip önerisi','Yüksek riskli öneri uygulandı.',FALSE)`,
+        [recommendation.product_id, recommendation.marketplace_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Fiyat önerisi uygulandı', recommendation_id: recommendationId, product_id: recommendation.product_id });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/price-analysis/recommendations/:id/reject
+router.post('/recommendations/:id/reject', async (req, res) => {
+  try {
+    const recommendationId = Number(req.params.id);
+    const reason = req.body?.reason || 'Kullanıcı tarafından reddedildi';
+    await pool.query(`UPDATE price_recommendations SET status = 'rejected' WHERE id = $1 AND status = 'pending'`, [recommendationId]);
+    await pool.query(
+      `UPDATE approvals SET status = 'rejected', rejected_reason = $1, approved_by = $2, approved_at = NOW()
+       WHERE entity_type = 'price_recommendation' AND entity_id = $3 AND status = 'pending'`,
+      [reason, req.user?.email || 'system', recommendationId]
+    );
+    res.json({ message: 'Öneri reddedildi', recommendation_id: recommendationId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
