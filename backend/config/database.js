@@ -1,8 +1,18 @@
-FROM node:18-alpine
-WORKDIR /app
-COPY backend/package*.json ./
-RUN npm install
-COPY backend/ .
-EXPOSE 5000
-ENV DATABASE_URL=postgresql://erp_marketplace_db_user:faleF2uSnyQz2WAAYut2jsr7WOZ5jEtp@dpg-d6qon6aa214c739jdvng-a.oregon-postgres.render.com/erp_marketplace_db
-CMD ["node", "server.js"]
+const { Pool } = require('pg');
+
+const pool = new Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+      }
+    : {
+        user: process.env.DB_USER || 'user',
+        host: process.env.DB_HOST || 'localhost',
+        database: process.env.DB_NAME || 'mydatabase',
+        password: process.env.DB_PASSWORD || 'password',
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+      }
+);
+
+module.exports = pool;
