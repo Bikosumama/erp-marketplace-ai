@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
@@ -80,7 +80,7 @@ async function fetchRecommendationRows({ status, productId }) {
 
   const result = await pool.query(
     `SELECT
-       pr.*, p.name AS product_name, p.stock_code, p.purchase_price,
+       pr.*, p.name AS product_name, p.stock_code, p.cost,
        p.brand_min_price AS product_brand_min_price,
        c.name AS category_name,
        m.marketplace_name
@@ -217,8 +217,8 @@ async function createAlerts(client, recommendationId, productId, marketplaceId, 
         marketplaceId,
         alert.type || 'generic_alert',
         alert.severity || 'medium',
-        alert.title || 'Fiyat uyarısı',
-        alert.message || 'Fiyat analizi sırasında uyarı üretildi.',
+        alert.title || 'Fiyat uyarÄ±sÄ±',
+        alert.message || 'Fiyat analizi sÄ±rasÄ±nda uyarÄ± Ã¼retildi.',
       ]
     );
   }
@@ -366,7 +366,7 @@ router.get('/export', async (req, res) => {
     });
 
     if (!recommendations.length) {
-      return res.status(404).json({ error: 'Dışa aktarılacak analiz kaydı bulunamadı' });
+      return res.status(404).json({ error: 'DÄ±ÅŸa aktarÄ±lacak analiz kaydÄ± bulunamadÄ±' });
     }
 
     const now = new Date();
@@ -379,19 +379,19 @@ router.get('/export', async (req, res) => {
         {
           name: 'Fiyat Analizi',
           columns: [
-            { header: 'Ürün ID', key: 'product_id', width: 10 },
+            { header: 'ÃœrÃ¼n ID', key: 'product_id', width: 10 },
             { header: 'Stok Kodu', key: 'stock_code', width: 18 },
-            { header: 'Ürün Adı', key: 'product_name', width: 32 },
+            { header: 'ÃœrÃ¼n AdÄ±', key: 'product_name', width: 32 },
             { header: 'Pazaryeri', key: 'marketplace_name', width: 16 },
             { header: 'Kategori', key: 'category_name', width: 18 },
-            { header: 'Alış Fiyatı', key: 'purchase_price', width: 14, style: { numFmt: '#,##0.00' } },
-            { header: 'Güncel Fiyat', key: 'current_price', width: 14, style: { numFmt: '#,##0.00' } },
-            { header: 'Önerilen Fiyat', key: 'recommended_price', width: 16, style: { numFmt: '#,##0.00' } },
+            { header: 'AlÄ±ÅŸ FiyatÄ±', key: 'purchase_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'GÃ¼ncel Fiyat', key: 'current_price', width: 14, style: { numFmt: '#,##0.00' } },
+            { header: 'Ã–nerilen Fiyat', key: 'recommended_price', width: 16, style: { numFmt: '#,##0.00' } },
             { header: 'Floor Price', key: 'floor_price', width: 14, style: { numFmt: '#,##0.00' } },
             { header: 'Target Price', key: 'target_price', width: 14, style: { numFmt: '#,##0.00' } },
             { header: 'Marka Min Fiyat', key: 'brand_min_price', width: 16, style: { numFmt: '#,##0.00' } },
             { header: 'Protected Floor', key: 'protected_floor', width: 16, style: { numFmt: '#,##0.00' } },
-            { header: 'Pazaryeri İndirim %', key: 'marketplace_discount_rate', width: 18, style: { numFmt: '0.00' } },
+            { header: 'Pazaryeri Ä°ndirim %', key: 'marketplace_discount_rate', width: 18, style: { numFmt: '0.00' } },
             { header: 'Discount Adjusted Protected Price', key: 'discount_adjusted_protected_price', width: 28, style: { numFmt: '#,##0.00' } },
             { header: 'Customer Seen Price', key: 'customer_seen_price', width: 18, style: { numFmt: '#,##0.00' } },
             { header: 'Rakip Fiyat', key: 'competitor_price', width: 14, style: { numFmt: '#,##0.00' } },
@@ -401,12 +401,12 @@ router.get('/export', async (req, res) => {
             { header: 'Mevcut Marj %', key: 'current_margin_rate', width: 14, style: { numFmt: '0.00' } },
             { header: 'Beklenen Marj %', key: 'projected_margin_rate', width: 16, style: { numFmt: '0.00' } },
             { header: 'Projected Profit', key: 'profit_margin', width: 16, style: { numFmt: '#,##0.00' } },
-            { header: 'Öneri Tipi', key: 'recommendation_type', width: 14 },
+            { header: 'Ã–neri Tipi', key: 'recommendation_type', width: 14 },
             { header: 'Risk', key: 'risk_level', width: 12 },
-            { header: 'Güven', key: 'confidence', width: 10, style: { numFmt: '0.00' } },
+            { header: 'GÃ¼ven', key: 'confidence', width: 10, style: { numFmt: '0.00' } },
             { header: 'Kalite Skoru', key: 'quality_score', width: 12 },
-            { header: 'Fiyat Kuralı Scope', key: 'pricing_rule_scope', width: 18 },
-            { header: 'Kargo Kuralı Scope', key: 'shipping_rule_scope', width: 18 },
+            { header: 'Fiyat KuralÄ± Scope', key: 'pricing_rule_scope', width: 18 },
+            { header: 'Kargo KuralÄ± Scope', key: 'shipping_rule_scope', width: 18 },
             { header: 'Durum', key: 'status', width: 12 },
             { header: 'Not', key: 'note', width: 42 },
             { header: 'Tarih', key: 'created_at', width: 20 },
@@ -506,7 +506,7 @@ router.post('/analyze', async (req, res) => {
       : await pool.query(`SELECT * FROM products ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT 100`);
 
     if (!productsRes.rows.length) {
-      return res.status(404).json({ error: 'Analiz edilecek ürün bulunamadı' });
+      return res.status(404).json({ error: 'Analiz edilecek Ã¼rÃ¼n bulunamadÄ±' });
     }
 
     const recommendations = [];
@@ -516,7 +516,7 @@ router.post('/analyze', async (req, res) => {
     }
 
     res.json({
-      message: product_id ? 'Ürün analizi tamamlandı' : 'Toplu fiyat analizi tamamlandı',
+      message: product_id ? 'ÃœrÃ¼n analizi tamamlandÄ±' : 'Toplu fiyat analizi tamamlandÄ±',
       count: recommendations.length,
       recommendations,
     });
@@ -530,7 +530,7 @@ router.post('/recommendations/:id/apply', async (req, res) => {
   try {
     const recommendationId = Number(req.params.id);
     if (!recommendationId) {
-      return res.status(400).json({ error: 'Geçersiz öneri ID' });
+      return res.status(400).json({ error: 'GeÃ§ersiz Ã¶neri ID' });
     }
 
     await client.query('BEGIN');
@@ -546,13 +546,13 @@ router.post('/recommendations/:id/apply', async (req, res) => {
 
     if (!recRes.rows.length) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Öneri bulunamadı' });
+      return res.status(404).json({ error: 'Ã–neri bulunamadÄ±' });
     }
 
     const recommendation = recRes.rows[0];
     if (recommendation.status === 'applied') {
       await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Bu öneri zaten uygulanmış' });
+      return res.status(409).json({ error: 'Bu Ã¶neri zaten uygulanmÄ±ÅŸ' });
     }
 
     const productBeforeRes = await client.query(`SELECT * FROM products WHERE id = $1`, [recommendation.product_id]);
@@ -571,7 +571,7 @@ router.post('/recommendations/:id/apply', async (req, res) => {
         recommendation.marketplace_id,
         recommendation.current_price,
         recommendation.recommended_price,
-        recommendation.reason_text || 'Fiyat analizi önerisi uygulandı',
+        recommendation.reason_text || 'Fiyat analizi Ã¶nerisi uygulandÄ±',
         req.user?.email || req.user?.name || 'system',
       ]
     );
@@ -604,17 +604,17 @@ router.post('/recommendations/:id/apply', async (req, res) => {
     if (recommendation.risk_level === 'high') {
       await client.query(
         `INSERT INTO alerts (product_id, marketplace_id, alert_type, severity, title, message, is_resolved, resolved_at)
-         VALUES ($1,$2,'manual_followup','medium','Manuel takip önerisi',$3,FALSE,NULL)`,
+         VALUES ($1,$2,'manual_followup','medium','Manuel takip Ã¶nerisi',$3,FALSE,NULL)`,
         [
           recommendation.product_id,
           recommendation.marketplace_id,
-          'Yüksek riskli bir öneri uygulandı. Sonuçların manuel olarak takip edilmesi önerilir.',
+          'YÃ¼ksek riskli bir Ã¶neri uygulandÄ±. SonuÃ§larÄ±n manuel olarak takip edilmesi Ã¶nerilir.',
         ]
       );
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Fiyat önerisi uygulandı', recommendation_id: recommendationId, product_id: recommendation.product_id });
+    res.json({ message: 'Fiyat Ã¶nerisi uygulandÄ±', recommendation_id: recommendationId, product_id: recommendation.product_id });
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
@@ -626,7 +626,7 @@ router.post('/recommendations/:id/apply', async (req, res) => {
 router.post('/recommendations/:id/reject', async (req, res) => {
   try {
     const recommendationId = Number(req.params.id);
-    const reason = req.body?.reason || 'Kullanıcı tarafından reddedildi';
+    const reason = req.body?.reason || 'KullanÄ±cÄ± tarafÄ±ndan reddedildi';
 
     await pool.query(
       `UPDATE price_recommendations SET status = 'rejected' WHERE id = $1 AND status = 'pending'`,
@@ -640,10 +640,12 @@ router.post('/recommendations/:id/reject', async (req, res) => {
       [reason, req.user?.email || req.user?.name || 'system', recommendationId]
     );
 
-    res.json({ message: 'Öneri reddedildi', recommendation_id: recommendationId });
+    res.json({ message: 'Ã–neri reddedildi', recommendation_id: recommendationId });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 module.exports = router;
+
+
