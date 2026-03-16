@@ -29,11 +29,11 @@ const emptyMarketplaceRule = {
 
 const emptyShippingRule = {
   marketplace_id: '',
-  min_price: 0,
+  min_price: '',
   max_price: '',
-  min_desi: 0,
+  min_desi: '',
   max_desi: '',
-  shipping_cost: 0,
+  shipping_cost: '',
   is_active: true,
   notes: '',
 };
@@ -63,10 +63,54 @@ const emptyExtraDeduction = {
   notes: '',
 };
 
+function createEmptySimulatorForm() {
+  return {
+    marketplace_id: '',
+    product_id: '',
+    cost: '',
+    current_price: '',
+    desi: '',
+    competitor_price: '',
+    brand_min_price: '',
+    commission_rate: '',
+    vat_rate: 20,
+    fixed_fee: '',
+    marketplace_discount_rate: '',
+    marketplace_discount_funded: false,
+    rounding_ending: 0.9,
+    min_margin_rate: 10,
+    target_margin_rate: 18,
+    shipping_cost: '',
+    shipping_cost_manual: false,
+  };
+}
+
 function normalizeNumber(value) {
   if (value === '' || value === null || value === undefined) return '';
   const number = Number(value);
   return Number.isFinite(number) ? number : '';
+}
+
+function toNumber(value, fallback = 0) {
+  if (value === '' || value === null || value === undefined) return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === true || value === false) return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (['true', 'yes', 'evet', 'on'].includes(lowered)) return true;
+    if (['false', 'no', 'hayır', 'hayir', 'off'].includes(lowered)) return false;
+  }
+  return fallback;
 }
 
 function formatBool(value) {
@@ -75,6 +119,73 @@ function formatBool(value) {
 
 function getErrorMessage(err) {
   return err?.message || 'İşlem sırasında hata oluştu';
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isRuleCurrentlyValid(rule, now = new Date()) {
+  const validFrom = parseDate(rule?.valid_from);
+  const validTo = parseDate(rule?.valid_to);
+  if (validFrom && now < validFrom) return false;
+  if (validTo && now > validTo) return false;
+  return true;
+}
+
+function matchesOptionalId(ruleValue, contextValue) {
+  if (ruleValue === null || ruleValue === undefined || ruleValue === '') return true;
+  if (contextValue === null || contextValue === undefined || contextValue === '') return false;
+  return Number(ruleValue) === Number(contextValue);
+}
+
+function inRange(value, minValue, maxValue) {
+  const current = toNumber(value, 0);
+  const min = minValue === null || minValue === undefined || minValue === '' ? null : toNumber(minValue, 0);
+  const max = maxValue === null || maxValue === undefined || maxValue === '' ? null : toNumber(maxValue, 0);
+
+  if (min !== null && current < min) return false;
+  if (max !== null && current > max) return false;
+  return true;
+}
+
+function rangeSpan(minValue, maxValue) {
+  const min = minValue === null || minValue === undefined || minValue === '' ? 0 : toNumber(minValue, 0);
+  const max =
+    maxValue === null || maxValue === undefined || maxValue === ''
+      ? Number.MAX_SAFE_INTEGER
+      : toNumber(maxValue, Number.MAX_SAFE_INTEGER);
+  return Math.max(0, max - min);
+}
+
+function getScopeWeight(scope) {
+  switch (String(scope || 'general').toLowerCase()) {
+    case 'product':
+      return 400;
+    case 'category':
+      return 300;
+    case 'marketplace':
+      return 200;
+    case 'general':
+    default:
+      return 100;
+  }
+}
+
+function getScopeLabel(scope) {
+  switch (String(scope || 'general').toLowerCase()) {
+    case 'product':
+      return 'Ürün';
+    case 'category':
+      return 'Kategori';
+    case 'marketplace':
+      return 'Pazaryeri';
+    case 'general':
+    default:
+      return 'Genel';
+  }
 }
 
 function buildCategoryOptions(categories = []) {
@@ -97,9 +208,598 @@ function buildProductOptions(products = []) {
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
 }
 
-function lookupLabel(options, value, fallback = '—') {
-  const found = options.find((item) => String(item.id) === String(value));
-  return found?.label || fallback;
+function resolveScopedRule(rules = [], context = {}) {
+  const now = new Date();
+
+  const candidates = (Array.isArray(rules) ? rules : [])
+    .filter((rule) => rule && normalizeBoolean(rule.is_active, true))
+    .filter((rule) => isRuleCurrentlyValid(rule, now))
+    .filter((rule) => {
+      const scope = String(rule.scope_type || 'general').toLowerCase();
+
+      if (!matchesOptionalId(rule.marketplace_id, context.marketplaceId)) return false;
+      if (!matchesOptionalId(rule.category_id, context.categoryId)) return false;
+      if (!matchesOptionalId(rule.product_id, context.productId)) return false;
+
+      if (scope === 'product') {
+        return Number(rule.product_id) === Number(context.productId);
+      }
+
+      if (scope === 'category') {
+        return Number(rule.category_id) === Number(context.categoryId);
+      }
+
+      if (scope === 'marketplace') {
+        return Number(rule.marketplace_id) === Number(context.marketplaceId);
+      }
+
+      return true;
+    });
+
+  candidates.sort((a, b) => {
+    const scopeDiff = getScopeWeight(b.scope_type) - getScopeWeight(a.scope_type);
+    if (scopeDiff !== 0) return scopeDiff;
+
+    const priorityDiff = toNumber(a.priority, 9999) - toNumber(b.priority, 9999);
+    if (priorityDiff !== 0) return priorityDiff;
+
+    const validFromA = parseDate(a.valid_from)?.getTime() || 0;
+    const validFromB = parseDate(b.valid_from)?.getTime() || 0;
+    if (validFromB !== validFromA) return validFromB - validFromA;
+
+    return toNumber(b.id) - toNumber(a.id);
+  });
+
+  return candidates[0] || null;
+}
+
+function resolveShippingRule(shippingRules = [], context = {}) {
+  const now = new Date();
+  const currentPrice = toNumber(context.price ?? context.customerSeenPrice ?? context.listingPrice, 0);
+  const currentDesi = toNumber(context.desi ?? context.totalDesi, 0);
+
+  const candidates = (Array.isArray(shippingRules) ? shippingRules : [])
+    .filter((rule) => rule && normalizeBoolean(rule.is_active, true))
+    .filter((rule) => isRuleCurrentlyValid(rule, now))
+    .filter((rule) => {
+      const scope = String(rule.scope_type || (rule.marketplace_id ? 'marketplace' : 'general')).toLowerCase();
+
+      if (scope === 'marketplace' && Number(rule.marketplace_id) !== Number(context.marketplaceId)) {
+        return false;
+      }
+
+      if (scope === 'general' && rule.marketplace_id && Number(rule.marketplace_id) !== Number(context.marketplaceId)) {
+        return false;
+      }
+
+      if (!inRange(currentPrice, rule.min_price, rule.max_price)) {
+        return false;
+      }
+
+      if (!inRange(currentDesi, rule.min_desi, rule.max_desi)) {
+        return false;
+      }
+
+      return true;
+    });
+
+  candidates.sort((a, b) => {
+    const scopeDiff =
+      getScopeWeight(b.scope_type || (b.marketplace_id ? 'marketplace' : 'general')) -
+      getScopeWeight(a.scope_type || (a.marketplace_id ? 'marketplace' : 'general'));
+    if (scopeDiff !== 0) return scopeDiff;
+
+    const priorityDiff = toNumber(a.priority, 9999) - toNumber(b.priority, 9999);
+    if (priorityDiff !== 0) return priorityDiff;
+
+    const priceSpanDiff = rangeSpan(a.min_price, a.max_price) - rangeSpan(b.min_price, b.max_price);
+    if (priceSpanDiff !== 0) return priceSpanDiff;
+
+    const desiSpanDiff = rangeSpan(a.min_desi, a.max_desi) - rangeSpan(b.min_desi, b.max_desi);
+    if (desiSpanDiff !== 0) return desiSpanDiff;
+
+    const minPriceDiff = toNumber(b.min_price, 0) - toNumber(a.min_price, 0);
+    if (minPriceDiff !== 0) return minPriceDiff;
+
+    const minDesiDiff = toNumber(b.min_desi, 0) - toNumber(a.min_desi, 0);
+    if (minDesiDiff !== 0) return minDesiDiff;
+
+    return toNumber(b.id) - toNumber(a.id);
+  });
+
+  return candidates[0] || null;
+}
+
+function getProductDesi(product = {}) {
+  const candidates = [
+    product.desi,
+    product.shipping_desi,
+    product.shipment_desi,
+    product.package_desi,
+    product.volumetric_desi,
+    product.volume_desi,
+    product.dimensional_weight,
+    product.dimension_weight,
+  ];
+
+  for (const item of candidates) {
+    const value = Number(item);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return 0;
+}
+
+function getExtraDeductionsForRule(extraDeductions = [], marketplaceRuleId) {
+  return (Array.isArray(extraDeductions) ? extraDeductions : [])
+    .filter((item) => item && normalizeBoolean(item.is_active, true))
+    .filter((item) => {
+      if (!marketplaceRuleId) return false;
+      return Number(item.marketplace_rule_id) === Number(marketplaceRuleId);
+    })
+    .filter((item) => isRuleCurrentlyValid(item))
+    .sort((a, b) => {
+      const priorityDiff = toNumber(a.priority, 9999) - toNumber(b.priority, 9999);
+      if (priorityDiff !== 0) return priorityDiff;
+      return toNumber(a.id) - toNumber(b.id);
+    });
+}
+
+function roundUpToEnding(value, ending = 0.9) {
+  const number = toNumber(value, 0);
+  const normalizedEnding = clamp(toNumber(ending, 0.9), 0, 0.99);
+  const integerPart = Math.floor(number);
+  const candidate = integerPart + normalizedEnding;
+
+  if (candidate >= number) {
+    return Number(candidate.toFixed(2));
+  }
+
+  return Number((integerPart + 1 + normalizedEnding).toFixed(2));
+}
+
+function getCommissionBaseAmount({ grossPrice, netExVat, commissionBase }) {
+  const base = String(commissionBase || 'net_ex_vat').toLowerCase();
+  if (base === 'gross_price') return grossPrice;
+  return netExVat;
+}
+
+function getExtraDeductionBaseAmount({ baseAmountType, grossPrice, netExVat, netAfterCommission }) {
+  const type = String(baseAmountType || 'net_ex_vat').toLowerCase();
+  if (type === 'gross_price') return grossPrice;
+  if (type === 'net_after_commission') return netAfterCommission;
+  return netExVat;
+}
+
+function calculateExtraDeductions(extraDeductions = [], values = {}) {
+  let total = 0;
+  const breakdown = [];
+
+  for (const item of Array.isArray(extraDeductions) ? extraDeductions : []) {
+    if (!item || !normalizeBoolean(item.is_active, true)) continue;
+
+    const calculationType = String(item.calculation_type || 'percentage').toLowerCase();
+    const baseAmount = getExtraDeductionBaseAmount({
+      baseAmountType: item.base_amount_type,
+      grossPrice: values.grossPrice,
+      netExVat: values.netExVat,
+      netAfterCommission: values.netAfterCommission,
+    });
+
+    let amount = 0;
+
+    if (calculationType === 'fixed') {
+      amount = toNumber(item.fixed_amount);
+    } else {
+      amount = baseAmount * (toNumber(item.rate) / 100);
+    }
+
+    amount = Number(amount.toFixed(2));
+    total += amount;
+    breakdown.push({
+      ...item,
+      amount,
+    });
+  }
+
+  return {
+    total: Number(total.toFixed(2)),
+    breakdown,
+  };
+}
+
+function computeFinancials(price, options = {}) {
+  const grossPrice = toNumber(price, 0);
+  const cost = toNumber(options.cost, 0);
+  const vatRate = toNumber(options.vatRate, 20);
+  const commissionRate = toNumber(options.commissionRate, 0);
+  const commissionBase = options.commissionBase || 'net_ex_vat';
+  const fixedFee = toNumber(options.fixedFee, 0);
+
+  const shippingRule =
+    options.shippingRule ||
+    resolveShippingRule(options.shippingRules || [], {
+      marketplaceId: options.marketplaceId,
+      price: options.shippingPrice != null ? toNumber(options.shippingPrice) : grossPrice,
+      desi: options.desi != null ? toNumber(options.desi) : 0,
+    });
+
+  const shippingCost = toNumber(shippingRule?.shipping_cost, 0);
+  const vatMultiplier = 1 + vatRate / 100;
+  const netExVat = vatMultiplier > 0 ? grossPrice / vatMultiplier : grossPrice;
+
+  const commissionBaseAmount = getCommissionBaseAmount({
+    grossPrice,
+    netExVat,
+    commissionBase,
+  });
+
+  const commissionAmount = commissionBaseAmount * (commissionRate / 100);
+  const netAfterCommission = netExVat - commissionAmount;
+
+  const extraDeductionResult = calculateExtraDeductions(options.extraDeductions || [], {
+    grossPrice,
+    netExVat,
+    netAfterCommission,
+  });
+
+  const profit = netExVat - commissionAmount - fixedFee - shippingCost - extraDeductionResult.total - cost;
+  const marginRate = grossPrice > 0 ? (profit / grossPrice) * 100 : 0;
+
+  return {
+    grossPrice: Number(grossPrice.toFixed(2)),
+    netExVat: Number(netExVat.toFixed(2)),
+    commissionAmount: Number(commissionAmount.toFixed(2)),
+    shippingCost: Number(shippingCost.toFixed(2)),
+    extraDeductionsTotal: Number(extraDeductionResult.total.toFixed(2)),
+    extraDeductionBreakdown: extraDeductionResult.breakdown,
+    fixedFee: Number(fixedFee.toFixed(2)),
+    profit: Number(profit.toFixed(2)),
+    marginRate: Number(marginRate.toFixed(2)),
+    shippingRule,
+  };
+}
+
+function findMinimumPriceForMargin(targetMarginRate, options = {}) {
+  const target = toNumber(targetMarginRate, 0);
+  let low = 0;
+  let high = Math.max(
+    100,
+    toNumber(options.cost) * 3,
+    toNumber(options.currentPrice) * 2,
+    toNumber(options.brandMinPrice) * 2,
+    toNumber(options.competitorPrice) * 2
+  );
+
+  let probe = computeFinancials(high, options);
+  let guard = 0;
+
+  while (probe.marginRate < target && guard < 30) {
+    high *= 2;
+    probe = computeFinancials(high, options);
+    guard += 1;
+  }
+
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (low + high) / 2;
+    const result = computeFinancials(mid, options);
+    if (result.marginRate >= target) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return Number(high.toFixed(2));
+}
+
+function formatCurrency(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+    return '—';
+  }
+
+  return new Intl.NumberFormat('tr-TR', {
+    style: 'currency',
+    currency: 'TRY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+    return '—';
+  }
+  return `%${Number(value).toFixed(2)}`;
+}
+
+function describeMarketplaceRule(rule) {
+  if (!rule) return 'Eşleşmedi';
+  return `#${rule.id} • ${rule.marketplace_name || 'Genel'} • ${getScopeLabel(rule.scope_type)}`;
+}
+
+function describeShippingRule(rule) {
+  if (!rule) return 'Eşleşmedi';
+  if (String(rule.scope_type || '').toLowerCase() === 'manual') {
+    return `Elle girilen kargo • ${formatCurrency(rule.shipping_cost)}`;
+  }
+
+  const marketplaceLabel = rule.marketplace_name || 'Genel';
+  const minPrice = rule.min_price ?? 0;
+  const maxPrice = rule.max_price ?? '∞';
+  const minDesi = rule.min_desi ?? 0;
+  const maxDesi = rule.max_desi ?? '∞';
+
+  return `#${rule.id} • ${marketplaceLabel} • ${minPrice}-${maxPrice} TL • ${minDesi}-${maxDesi} desi`;
+}
+
+function resolveBaseMarketplaceRule(rules = [], marketplaceId) {
+  return resolveScopedRule(
+    rules.filter((rule) => {
+      const scope = String(rule?.scope_type || 'general').toLowerCase();
+      return scope === 'general' || scope === 'marketplace';
+    }),
+    {
+      marketplaceId,
+      categoryId: '',
+      productId: '',
+    }
+  );
+}
+
+function buildSimulatorDefaults({
+  marketplaceId,
+  productId,
+  products,
+  marketplaceRules,
+  shippingRules,
+  profitTargets,
+}) {
+  const product = (products || []).find((item) => String(item.id) === String(productId));
+  if (!product || !marketplaceId) return null;
+
+  const context = {
+    marketplaceId,
+    categoryId: product.category_id,
+    productId: product.id,
+  };
+
+  const marketplaceRule = resolveScopedRule(marketplaceRules, context);
+  const profitTarget = resolveScopedRule(profitTargets, context);
+
+  const currentPrice = toNumber(product.sale_price ?? product.list_price ?? product.price, 0);
+  const desi = getProductDesi(product);
+  const shippingRule = resolveShippingRule(shippingRules, {
+    marketplaceId,
+    price: currentPrice,
+    desi,
+  });
+
+  return {
+    cost: normalizeNumber(product.cost ?? product.purchase_price ?? 0),
+    current_price: normalizeNumber(currentPrice),
+    desi: normalizeNumber(desi),
+    competitor_price: '',
+    brand_min_price: normalizeNumber(product.brand_min_price ?? 0),
+    commission_rate: normalizeNumber(marketplaceRule?.commission_rate ?? 0),
+    vat_rate: normalizeNumber(marketplaceRule?.vat_rate ?? product.vat_rate ?? 20),
+    fixed_fee: normalizeNumber(marketplaceRule?.fixed_fee ?? 0),
+    marketplace_discount_rate: normalizeNumber(marketplaceRule?.marketplace_discount_rate ?? 0),
+    marketplace_discount_funded: Boolean(marketplaceRule?.marketplace_discount_funded),
+    rounding_ending: normalizeNumber(marketplaceRule?.rounding_ending ?? 0.9),
+    min_margin_rate: normalizeNumber(
+      profitTarget?.min_margin_rate ??
+        profitTarget?.min_profit_margin ??
+        marketplaceRule?.min_margin_rate ??
+        marketplaceRule?.minimum_profit_margin ??
+        10
+    ),
+    target_margin_rate: normalizeNumber(
+      profitTarget?.target_margin_rate ??
+        profitTarget?.target_profit_margin ??
+        marketplaceRule?.target_margin_rate ??
+        marketplaceRule?.target_profit_margin ??
+        18
+    ),
+    shipping_cost: normalizeNumber(shippingRule?.shipping_cost ?? ''),
+    shipping_cost_manual: false,
+  };
+}
+
+function buildSimulationResult({
+  simulatorForm,
+  products,
+  marketplaces,
+  categories,
+  marketplaceRules,
+  shippingRules,
+  profitTargets,
+  extraDeductions,
+}) {
+  const product = (products || []).find((item) => String(item.id) === String(simulatorForm.product_id));
+  if (!product) {
+    throw new Error('Ürün bulunamadı');
+  }
+
+  const marketplace = (marketplaces || []).find(
+    (item) => String(item.id) === String(simulatorForm.marketplace_id)
+  );
+
+  const category = (categories || []).find((item) => String(item.id) === String(product.category_id));
+
+  const context = {
+    marketplaceId: simulatorForm.marketplace_id,
+    categoryId: product.category_id,
+    productId: product.id,
+  };
+
+  const appliedMarketplaceRule = resolveScopedRule(marketplaceRules, context);
+  const baseMarketplaceRule = resolveBaseMarketplaceRule(marketplaceRules, simulatorForm.marketplace_id);
+  const appliedProfitTarget = resolveScopedRule(profitTargets, context);
+
+  const autoShippingRule = resolveShippingRule(shippingRules, {
+    marketplaceId: simulatorForm.marketplace_id,
+    price: toNumber(simulatorForm.current_price),
+    desi: toNumber(simulatorForm.desi),
+  });
+
+  const manualShippingRule =
+    simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== ''
+      ? {
+          id: null,
+          scope_type: 'manual',
+          shipping_cost: toNumber(simulatorForm.shipping_cost),
+          marketplace_name: marketplace?.marketplace_name || 'Seçilen Pazaryeri',
+        }
+      : null;
+
+  const deductionList = getExtraDeductionsForRule(extraDeductions, appliedMarketplaceRule?.id);
+
+  const commissionBase = appliedMarketplaceRule?.commission_base || 'net_ex_vat';
+  const marketplaceDiscountRate = clamp(toNumber(simulatorForm.marketplace_discount_rate), 0, 95);
+  const marketplaceDiscountFunded = normalizeBoolean(simulatorForm.marketplace_discount_funded, false);
+  const discountRateDecimal = marketplaceDiscountRate / 100;
+
+  const brandMinPrice = toNumber(simulatorForm.brand_min_price, 0);
+  const cost = toNumber(simulatorForm.cost, 0);
+  const currentPrice = toNumber(simulatorForm.current_price, 0);
+  const desi = toNumber(simulatorForm.desi, 0);
+  const competitorPrice =
+    simulatorForm.competitor_price === '' ? null : toNumber(simulatorForm.competitor_price, 0);
+  const minMarginRate = toNumber(simulatorForm.min_margin_rate, 10);
+  const targetMarginRate = toNumber(simulatorForm.target_margin_rate, 18);
+  const roundingEnding = toNumber(simulatorForm.rounding_ending, 0.9);
+
+  const commonOptions = {
+    cost,
+    vatRate: toNumber(simulatorForm.vat_rate, 20),
+    commissionRate: toNumber(simulatorForm.commission_rate, 0),
+    commissionBase,
+    fixedFee: toNumber(simulatorForm.fixed_fee, 0),
+    shippingRule: manualShippingRule,
+    shippingRules,
+    extraDeductions: deductionList,
+    marketplaceId: simulatorForm.marketplace_id,
+    currentPrice,
+    competitorPrice,
+    brandMinPrice,
+    desi,
+  };
+
+  const currentFinancials = computeFinancials(currentPrice, commonOptions);
+  const profitFloor = findMinimumPriceForMargin(minMarginRate, commonOptions);
+  const targetPrice = findMinimumPriceForMargin(targetMarginRate, commonOptions);
+  const protectedFloor = Math.max(profitFloor, brandMinPrice);
+
+  const discountAdjustedProtectedFloor =
+    marketplaceDiscountFunded && discountRateDecimal > 0
+      ? protectedFloor / (1 - discountRateDecimal)
+      : protectedFloor;
+
+  const rawRecommendedPrice = Math.max(targetPrice, discountAdjustedProtectedFloor);
+  const recommendedPrice = roundUpToEnding(rawRecommendedPrice, roundingEnding);
+
+  const projectedFinancials = computeFinancials(recommendedPrice, commonOptions);
+
+  const customerSeenPrice =
+    marketplaceDiscountFunded && discountRateDecimal > 0
+      ? Number((recommendedPrice * (1 - discountRateDecimal)).toFixed(2))
+      : recommendedPrice;
+
+  let recommendationType = 'keep';
+  if (!currentPrice) recommendationType = 'set';
+  else if (recommendedPrice > currentPrice + 0.01) recommendationType = 'increase';
+  else if (recommendedPrice < currentPrice - 0.01) recommendationType = 'decrease';
+
+  const reasons = [];
+  if (baseMarketplaceRule) {
+    reasons.push(`Genel baz kural: ${describeMarketplaceRule(baseMarketplaceRule)}`);
+  }
+  if (appliedMarketplaceRule) {
+    reasons.push(`Uygulanan kural: ${describeMarketplaceRule(appliedMarketplaceRule)}`);
+  }
+  if (appliedProfitTarget) {
+    reasons.push(
+      `Kâr hedefi: min ${formatPercent(
+        appliedProfitTarget.min_margin_rate ?? appliedProfitTarget.min_profit_margin ?? minMarginRate
+      )} / hedef ${formatPercent(
+        appliedProfitTarget.target_margin_rate ?? appliedProfitTarget.target_profit_margin ?? targetMarginRate
+      )}`
+    );
+  }
+  if (brandMinPrice > 0) {
+    reasons.push(`Firma minimum fiyat korundu: ${formatCurrency(brandMinPrice)}`);
+  }
+  if (marketplaceDiscountFunded && marketplaceDiscountRate > 0) {
+    reasons.push(`Pazaryeri indirimi nedeniyle liste fiyatı yukarı taşındı: ${formatPercent(marketplaceDiscountRate)}`);
+  }
+  if (manualShippingRule) {
+    reasons.push(`Kargo elle override edildi: ${formatCurrency(manualShippingRule.shipping_cost)}`);
+  } else if (projectedFinancials.shippingRule) {
+    reasons.push(`Kargo eşleşmesi: ${describeShippingRule(projectedFinancials.shippingRule)}`);
+  }
+
+  const alerts = [];
+  if (currentPrice > 0 && currentPrice < protectedFloor) {
+    alerts.push({
+      type: 'protected_floor_breach',
+      severity: 'high',
+      title: 'Korunan taban altında fiyat',
+      message: `Mevcut fiyat ${formatCurrency(currentPrice)} protected floor ${formatCurrency(
+        protectedFloor
+      )} altında kalıyor.`,
+    });
+  }
+
+  if (competitorPrice !== null && recommendedPrice > competitorPrice * 1.15) {
+    alerts.push({
+      type: 'competitor_gap',
+      severity: 'medium',
+      title: 'Rakip fiyat farkı yüksek',
+      message: 'Önerilen fiyat rakip fiyata göre belirgin şekilde yukarıda kaldı.',
+    });
+  }
+
+  if (marketplaceDiscountFunded && customerSeenPrice < protectedFloor) {
+    alerts.push({
+      type: 'discount_floor_warning',
+      severity: 'high',
+      title: 'İndirim sonrası koruma kontrolü',
+      message: 'İndirimli müşteri fiyatı protected floor seviyesine çok yaklaştı.',
+    });
+  }
+
+  let riskLevel = 'low';
+  if (alerts.some((item) => item.severity === 'high')) riskLevel = 'high';
+  else if (alerts.length > 0) riskLevel = 'medium';
+
+  return {
+    product,
+    marketplace,
+    category,
+    matched: {
+      baseMarketplaceRule,
+      appliedMarketplaceRule,
+      profitTarget: appliedProfitTarget,
+      shippingRule: projectedFinancials.shippingRule || autoShippingRule || manualShippingRule,
+      extraDeductions: deductionList,
+    },
+    currentFinancials,
+    projectedFinancials,
+    floors: {
+      profitFloor: Number(profitFloor.toFixed(2)),
+      targetPrice: Number(targetPrice.toFixed(2)),
+      brandMinPrice: Number(brandMinPrice.toFixed(2)),
+      protectedFloor: Number(protectedFloor.toFixed(2)),
+      discountAdjustedProtectedFloor: Number(discountAdjustedProtectedFloor.toFixed(2)),
+    },
+    recommendationType,
+    recommendedPrice: Number(recommendedPrice.toFixed(2)),
+    customerSeenPrice: Number(customerSeenPrice.toFixed(2)),
+    reasons,
+    alerts,
+    riskLevel,
+  };
 }
 
 function Field({ label, children, hint }) {
@@ -154,7 +854,18 @@ function SimulatorValueRow({ label, value, strong = false }) {
   );
 }
 
-function RulesSimulatorModal({ open, onClose }) {
+function RulesSimulatorModal({
+  open,
+  onClose,
+  marketplaces,
+  products,
+  simulatorForm,
+  setSimulatorForm,
+  onApplyDefaults,
+  onCalculate,
+  result,
+  calculating,
+}) {
   if (!open) return null;
 
   return (
@@ -164,7 +875,8 @@ function RulesSimulatorModal({ open, onClose }) {
           <div>
             <h2 style={styles.modalTitle}>Kurallar Simülatörü</h2>
             <p style={styles.modalSubtitle}>
-              Ürün bazlı kural çıktısını test etmek için hazırlanan ön izleme alanı.
+              Ürün bazlı kural etkisini test et. Varsayılanlar otomatik gelir, alanlar istersen
+              elle değiştirilebilir.
             </p>
           </div>
 
@@ -174,56 +886,266 @@ function RulesSimulatorModal({ open, onClose }) {
         </div>
 
         <div style={styles.modalBody}>
-          <div style={styles.modalGrid}>
+          <div style={styles.modalGrid} className="rules-simulator-responsive">
             <section style={styles.simulatorSection}>
               <div style={styles.simulatorSectionHeader}>
                 <h3 style={styles.simulatorSectionTitle}>Girdi Alanı</h3>
                 <p style={styles.simulatorSectionText}>
-                  Sonraki adımda ürün listesi bağlanacak. Burada ürün ve pazaryeri seçilip
-                  hesaplama yapılacak.
+                  Önce pazaryeri ve ürün seç. Alış, satış, desi, komisyon ve kargo otomatik dolacak.
                 </p>
               </div>
 
               <div style={styles.formGrid}>
                 <Field label="Pazaryeri">
-                  <SelectInput disabled defaultValue="">
+                  <SelectInput
+                    value={simulatorForm.marketplace_id}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        marketplace_id: e.target.value,
+                      }))
+                    }
+                  >
                     <option value="">Seçiniz</option>
+                    {marketplaces.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.marketplace_name}
+                      </option>
+                    ))}
                   </SelectInput>
                 </Field>
 
                 <Field label="Ürün">
-                  <SelectInput disabled defaultValue="">
-                    <option value="">Sonraki adımda ürün listesi bağlanacak</option>
+                  <SelectInput
+                    value={simulatorForm.product_id}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        product_id: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Seçiniz</option>
+                    {products.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.stock_code
+                          ? `${item.stock_code} - ${item.name || item.product_name || `Ürün #${item.id}`}`
+                          : item.name || item.product_name || `Ürün #${item.id}`}
+                      </option>
+                    ))}
                   </SelectInput>
                 </Field>
 
                 <Field label="Alış Fiyatı">
-                  <TextInput disabled placeholder="0,00" />
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.cost}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        cost: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
                 </Field>
 
                 <Field label="Mevcut Satış Fiyatı">
-                  <TextInput disabled placeholder="0,00" />
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.current_price}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        current_price: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
                 </Field>
 
                 <Field label="Desi">
-                  <TextInput disabled placeholder="0" />
-                </Field>
-
-                <Field label="Rakip Fiyatı">
-                  <TextInput disabled placeholder="Opsiyonel" />
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.desi}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        desi: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
                 </Field>
 
                 <Field label="Firma Minimum Fiyatı">
-                  <TextInput disabled placeholder="0,00" />
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.brand_min_price}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        brand_min_price: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Rakip Fiyatı">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.competitor_price}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        competitor_price: normalizeNumber(e.target.value),
+                      }))
+                    }
+                    placeholder="Opsiyonel"
+                  />
+                </Field>
+
+                <Field label="Komisyon Oranı (%)">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.commission_rate}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        commission_rate: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="KDV Oranı (%)">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.vat_rate}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        vat_rate: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Sabit Ücret (TL)">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.fixed_fee}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        fixed_fee: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Kargo Ücreti (TL)" hint="Değiştirirsen manuel override edilir.">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.shipping_cost}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        shipping_cost: normalizeNumber(e.target.value),
+                        shipping_cost_manual: true,
+                      }))
+                    }
+                  />
                 </Field>
 
                 <Field label="Pazaryeri İndirim Oranı (%)">
-                  <TextInput disabled placeholder="0" />
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.marketplace_discount_rate}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        marketplace_discount_rate: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
                 </Field>
 
-                <div style={{ gridColumn: '1 / -1' }}>
-                  <button type="button" disabled style={styles.disabledPrimaryButton}>
-                    Simülasyonu Hesapla
+                <Field label="İndirimi Pazaryeri Fonluyor mu?">
+                  <SelectInput
+                    value={simulatorForm.marketplace_discount_funded ? '1' : '0'}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        marketplace_discount_funded: e.target.value === '1',
+                      }))
+                    }
+                  >
+                    <option value="0">Hayır</option>
+                    <option value="1">Evet</option>
+                  </SelectInput>
+                </Field>
+
+                <Field label="Min Marj (%)">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.min_margin_rate}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        min_margin_rate: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Hedef Marj (%)">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.target_margin_rate}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        target_margin_rate: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <Field label="Yuvarlama Sonu">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.rounding_ending}
+                    onChange={(e) =>
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        rounding_ending: normalizeNumber(e.target.value),
+                      }))
+                    }
+                  />
+                </Field>
+
+                <div style={styles.simulatorActionRow}>
+                  <button type="button" onClick={onApplyDefaults} style={styles.secondaryButton}>
+                    Varsayılanları Yükle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCalculate}
+                    style={styles.primaryButton}
+                    disabled={calculating}
+                  >
+                    {calculating ? 'Hesaplanıyor...' : 'Simülasyonu Hesapla'}
                   </button>
                 </div>
               </div>
@@ -233,31 +1155,74 @@ function RulesSimulatorModal({ open, onClose }) {
               <div style={styles.simulatorSectionHeader}>
                 <h3 style={styles.simulatorSectionTitle}>Uygulanan Kurallar</h3>
                 <p style={styles.simulatorSectionText}>
-                  Hangi genel / özel / kargo kuralının seçildiği burada gösterilecek.
+                  Bu blokta hangi kuralın ve hangi kargo bareminin devreye girdiği görünür.
                 </p>
               </div>
 
               <div style={styles.simulatorStack}>
                 <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Pazaryeri Genel Kuralı</div>
-                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                  <div style={styles.simulatorInfoLabel}>Genel / Fallback Kural</div>
+                  <div style={styles.simulatorInfoValue}>
+                    {result?.matched?.baseMarketplaceRule
+                      ? describeMarketplaceRule(result.matched.baseMarketplaceRule)
+                      : 'Henüz hesaplanmadı'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Pazaryeri Özel Kuralı</div>
-                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                  <div style={styles.simulatorInfoLabel}>Uygulanan Pazaryeri Kuralı</div>
+                  <div style={styles.simulatorInfoValue}>
+                    {result?.matched?.appliedMarketplaceRule
+                      ? describeMarketplaceRule(result.matched.appliedMarketplaceRule)
+                      : 'Henüz hesaplanmadı'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Kargo Kuralı</div>
-                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                  <div style={styles.simulatorInfoLabel}>Uygulanan Kâr Hedefi</div>
+                  <div style={styles.simulatorInfoValue}>
+                    {result?.matched?.profitTarget
+                      ? `#${result.matched.profitTarget.id} • min ${formatPercent(
+                          result.matched.profitTarget.min_margin_rate ??
+                            result.matched.profitTarget.min_profit_margin
+                        )} / hedef ${formatPercent(
+                          result.matched.profitTarget.target_margin_rate ??
+                            result.matched.profitTarget.target_profit_margin
+                        )}`
+                      : 'Henüz hesaplanmadı'}
+                  </div>
+                </div>
+
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Uygulanan Kargo Kuralı</div>
+                  <div style={styles.simulatorInfoValue}>
+                    {result?.matched?.shippingRule
+                      ? describeShippingRule(result.matched.shippingRule)
+                      : 'Henüz hesaplanmadı'}
+                  </div>
+                </div>
+
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Ek Kesintiler</div>
+                  <div style={styles.simulatorInfoText}>
+                    {result?.matched?.extraDeductions?.length
+                      ? result.matched.extraDeductions
+                          .map((item) =>
+                            item.calculation_type === 'fixed'
+                              ? `${item.name}: ${formatCurrency(item.fixed_amount)}`
+                              : `${item.name}: ${formatPercent(item.rate)}`
+                          )
+                          .join(' • ')
+                      : 'Ek kesinti eşleşmedi'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Açıklama</div>
                   <div style={styles.simulatorInfoText}>
-                    Bu alanda özel kural bulunduysa genel kuralı override ettiği bilgisi,
-                    minimum fiyat koruması ve pazaryeri indirimi etkisi gösterilecek.
+                    {result?.reasons?.length
+                      ? result.reasons.join(' | ')
+                      : 'Pazaryeri ve ürün seçildikten sonra kural özeti burada gösterilecek.'}
                   </div>
                 </div>
               </div>
@@ -267,49 +1232,131 @@ function RulesSimulatorModal({ open, onClose }) {
               <div style={styles.simulatorSectionHeader}>
                 <h3 style={styles.simulatorSectionTitle}>Sonuç</h3>
                 <p style={styles.simulatorSectionText}>
-                  Önerilen fiyat, protected floor ve finansal kırılım burada gösterilecek.
+                  Nihai önerilen fiyat, müşterinin göreceği fiyat ve finansal kırılım burada oluşur.
                 </p>
               </div>
 
               <div style={styles.simulatorSummaryGrid}>
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Önerilen Liste Fiyatı</div>
-                  <div style={styles.simulatorBigValue}>—</div>
+                  <div style={styles.simulatorBigValue}>
+                    {result ? formatCurrency(result.recommendedPrice) : '—'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Müşterinin Gördüğü Fiyat</div>
-                  <div style={styles.simulatorBigValue}>—</div>
+                  <div style={styles.simulatorBigValue}>
+                    {result ? formatCurrency(result.customerSeenPrice) : '—'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Protected Floor</div>
-                  <div style={styles.simulatorBigValue}>—</div>
+                  <div style={styles.simulatorBigValue}>
+                    {result ? formatCurrency(result.floors.protectedFloor) : '—'}
+                  </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Net Kâr Marjı</div>
-                  <div style={styles.simulatorBigValue}>—</div>
+                  <div style={styles.simulatorBigValue}>
+                    {result ? formatPercent(result.projectedFinancials.marginRate) : '—'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.simulatorBreakdownCard}>
+                <div style={styles.simulatorBreakdownTitle}>Temel Bilgiler</div>
+                <div style={styles.simulatorBreakdownBody}>
+                  <SimulatorValueRow
+                    label="Ürün"
+                    value={
+                      result?.product
+                        ? `${result.product.stock_code || '—'} • ${result.product.name || result.product.product_name || 'Ürün'}`
+                        : '—'
+                    }
+                  />
+                  <SimulatorValueRow
+                    label="Kategori"
+                    value={result?.category?.name || result?.product?.category_name || '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Pazaryeri"
+                    value={result?.marketplace?.marketplace_name || '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Risk Seviyesi"
+                    value={result?.riskLevel ? result.riskLevel.toUpperCase() : '—'}
+                    strong
+                  />
+                </div>
+              </div>
+
+              <div style={styles.simulatorBreakdownCard}>
+                <div style={styles.simulatorBreakdownTitle}>Tabanlar ve Hedefler</div>
+                <div style={styles.simulatorBreakdownBody}>
+                  <SimulatorValueRow
+                    label="Min Marj Tabanı"
+                    value={result ? formatCurrency(result.floors.profitFloor) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Hedef Marj Fiyatı"
+                    value={result ? formatCurrency(result.floors.targetPrice) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Firma Minimum Fiyatı"
+                    value={result ? formatCurrency(result.floors.brandMinPrice) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="İndirim Sonrası Korunan Taban"
+                    value={result ? formatCurrency(result.floors.discountAdjustedProtectedFloor) : '—'}
+                    strong
+                  />
                 </div>
               </div>
 
               <div style={styles.simulatorBreakdownCard}>
                 <div style={styles.simulatorBreakdownTitle}>Finansal Kırılım</div>
                 <div style={styles.simulatorBreakdownBody}>
-                  <SimulatorValueRow label="Komisyon" value="—" />
-                  <SimulatorValueRow label="Kargo" value="—" />
-                  <SimulatorValueRow label="Ek Kesintiler" value="—" />
-                  <SimulatorValueRow label="Platform Hizmet Bedeli" value="—" />
-                  <SimulatorValueRow label="Stopaj" value="—" />
-                  <SimulatorValueRow label="Net Kâr" value="—" strong />
+                  <SimulatorValueRow
+                    label="Brüt Satış"
+                    value={result ? formatCurrency(result.projectedFinancials.grossPrice) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="KDV Hariç Net"
+                    value={result ? formatCurrency(result.projectedFinancials.netExVat) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Komisyon"
+                    value={result ? formatCurrency(result.projectedFinancials.commissionAmount) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Kargo"
+                    value={result ? formatCurrency(result.projectedFinancials.shippingCost) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Platform Hizmet Bedeli"
+                    value={result ? formatCurrency(result.projectedFinancials.fixedFee) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Ek Kesintiler"
+                    value={result ? formatCurrency(result.projectedFinancials.extraDeductionsTotal) : '—'}
+                  />
+                  <SimulatorValueRow
+                    label="Net Kâr"
+                    value={result ? formatCurrency(result.projectedFinancials.profit) : '—'}
+                    strong
+                  />
                 </div>
               </div>
 
               <div style={styles.simulatorWarningCard}>
                 <div style={styles.simulatorWarningTitle}>Uyarılar</div>
                 <div style={styles.simulatorWarningText}>
-                  Bu alanda minimum fiyat koruması, pazaryeri indirimi ve ücretsiz kargo riski
-                  gibi uyarılar gösterilecek.
+                  {result?.alerts?.length
+                    ? result.alerts.map((item) => `${item.title}: ${item.message}`).join(' | ')
+                    : 'Şimdilik uyarı yok.'}
                 </div>
               </div>
             </section>
@@ -330,6 +1377,7 @@ export default function RulesPage() {
   const [saving, setSaving] = useState(false);
   const [showShippingHelp, setShowShippingHelp] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [simulatorCalculating, setSimulatorCalculating] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -352,6 +1400,9 @@ export default function RulesPage() {
   const [shippingForm, setShippingForm] = useState(emptyShippingRule);
   const [profitForm, setProfitForm] = useState(emptyProfitTarget);
   const [extraForm, setExtraForm] = useState(emptyExtraDeduction);
+
+  const [simulatorForm, setSimulatorForm] = useState(createEmptySimulatorForm());
+  const [simulatorResult, setSimulatorResult] = useState(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -443,6 +1494,47 @@ export default function RulesPage() {
       fetchAll();
     }
   }, [user, token, fetchAll]);
+
+  const applySimulatorDefaults = useCallback(() => {
+    if (!simulatorForm.marketplace_id || !simulatorForm.product_id) {
+      return;
+    }
+
+    const defaults = buildSimulatorDefaults({
+      marketplaceId: simulatorForm.marketplace_id,
+      productId: simulatorForm.product_id,
+      products,
+      marketplaceRules,
+      shippingRules,
+      profitTargets,
+    });
+
+    if (!defaults) return;
+
+    setSimulatorForm((prev) => ({
+      ...prev,
+      ...defaults,
+    }));
+    setSimulatorResult(null);
+  }, [
+    simulatorForm.marketplace_id,
+    simulatorForm.product_id,
+    products,
+    marketplaceRules,
+    shippingRules,
+    profitTargets,
+  ]);
+
+  useEffect(() => {
+    if (isSimulatorOpen && simulatorForm.marketplace_id && simulatorForm.product_id) {
+      applySimulatorDefaults();
+    }
+  }, [
+    isSimulatorOpen,
+    simulatorForm.marketplace_id,
+    simulatorForm.product_id,
+    applySimulatorDefaults,
+  ]);
 
   async function submitForm(url, method, payload, successMessage) {
     setSaving(true);
@@ -602,11 +1694,11 @@ export default function RulesPage() {
     setEditingShippingRuleId(rule.id);
     setShippingForm({
       marketplace_id: rule.marketplace_id ?? '',
-      min_price: normalizeNumber(rule.min_price) || 0,
+      min_price: normalizeNumber(rule.min_price),
       max_price: rule.max_price ?? '',
-      min_desi: normalizeNumber(rule.min_desi) || 0,
+      min_desi: normalizeNumber(rule.min_desi),
       max_desi: rule.max_desi ?? '',
-      shipping_cost: normalizeNumber(rule.shipping_cost) || 0,
+      shipping_cost: normalizeNumber(rule.shipping_cost),
       is_active: Boolean(rule.is_active),
       notes: rule.notes || '',
     });
@@ -708,6 +1800,34 @@ export default function RulesPage() {
     } catch (err) {
       setError(getErrorMessage(err));
     }
+  }
+
+  async function handleSimulatorCalculate() {
+    setSimulatorCalculating(true);
+    setError('');
+
+    try {
+      const result = buildSimulationResult({
+        simulatorForm,
+        products,
+        marketplaces,
+        categories,
+        marketplaceRules,
+        shippingRules,
+        profitTargets,
+        extraDeductions,
+      });
+
+      setSimulatorResult(result);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSimulatorCalculating(false);
+    }
+  }
+
+  function handleCloseSimulator() {
+    setIsSimulatorOpen(false);
   }
 
   if (loading) {
@@ -1821,7 +2941,18 @@ export default function RulesPage() {
         )}
       </div>
 
-      <RulesSimulatorModal open={isSimulatorOpen} onClose={() => setIsSimulatorOpen(false)} />
+      <RulesSimulatorModal
+        open={isSimulatorOpen}
+        onClose={handleCloseSimulator}
+        marketplaces={marketplaces}
+        products={products}
+        simulatorForm={simulatorForm}
+        setSimulatorForm={setSimulatorForm}
+        onApplyDefaults={applySimulatorDefaults}
+        onCalculate={handleSimulatorCalculate}
+        result={simulatorResult}
+        calculating={simulatorCalculating}
+      />
     </>
   );
 }
@@ -1865,17 +2996,6 @@ const styles = {
     color: '#fff',
     fontWeight: 600,
     cursor: 'pointer',
-  },
-  disabledPrimaryButton: {
-    height: 44,
-    width: '100%',
-    padding: '0 16px',
-    borderRadius: 10,
-    border: 'none',
-    background: '#94a3b8',
-    color: '#fff',
-    fontWeight: 700,
-    cursor: 'not-allowed',
   },
   secondaryButton: {
     height: 40,
@@ -2076,7 +3196,7 @@ const styles = {
   },
   modalCard: {
     width: '100%',
-    maxWidth: 1500,
+    maxWidth: 1520,
     maxHeight: '92vh',
     overflow: 'hidden',
     background: '#fff',
@@ -2112,7 +3232,7 @@ const styles = {
   },
   modalGrid: {
     display: 'grid',
-    gridTemplateColumns: '1.1fr 1fr 1fr',
+    gridTemplateColumns: '1.2fr 1fr 1fr',
     gap: 18,
     alignItems: 'start',
   },
@@ -2233,6 +3353,12 @@ const styles = {
     fontSize: 14,
     color: '#b45309',
     lineHeight: 1.6,
+  },
+  simulatorActionRow: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    gap: 10,
+    marginTop: 4,
   },
 };
 
