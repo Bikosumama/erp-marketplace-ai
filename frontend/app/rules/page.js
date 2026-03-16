@@ -402,6 +402,374 @@ function formatPercent(value) {
   return `%${Number(value).toFixed(2)}`;
 }
 
+function roundUpPriceToEnding(value, ending = 0.9) {
+  const numericValue = Math.max(0, toNumber(value, 0));
+  const decimal = Math.abs(toNumber(ending, 0.9)) % 1;
+
+  let rounded = Math.floor(numericValue) + decimal;
+  if (rounded < numericValue) {
+    rounded += 1;
+  }
+
+  return Number(rounded.toFixed(2));
+}
+
+function buildRuleDisplayName(rule, fallback = 'Henüz hesaplanmadı') {
+  if (!rule) return fallback;
+  return `#${rule.id || '—'} • ${getScopeLabel(rule.scope_type)} • ${rule.marketplace_name || 'General'}`;
+}
+
+function buildShippingRuleDisplayName(rule, fallback = 'Henüz hesaplanmadı') {
+  if (!rule) return fallback;
+
+  return `#${rule.id || '—'} • ${rule.marketplace_name || 'Genel'} • ${
+    rule.min_price ?? 0
+  }-${rule.max_price ?? '∞'} TL • ${rule.min_desi ?? 0}-${rule.max_desi ?? '∞'} desi`;
+}
+
+function buildLocalSimulationResult({
+  simulatorForm,
+  products,
+  marketplaces,
+  marketplaceRules,
+  shippingRules,
+  profitTargets,
+  extraDeductions,
+}) {
+  const product = (products || []).find(
+    (item) => String(item.id) === String(simulatorForm.product_id)
+  );
+  const marketplace = (marketplaces || []).find(
+    (item) => String(item.id) === String(simulatorForm.marketplace_id)
+  );
+
+  if (!product || !marketplace) {
+    throw new Error('Simülasyon için ürün veya pazaryeri bulunamadı');
+  }
+
+  const context = {
+    marketplaceId: simulatorForm.marketplace_id,
+    categoryId: product.category_id,
+    productId: product.id,
+  };
+
+  const marketplaceGeneralRule = resolveBaseMarketplaceRule(
+    marketplaceRules,
+    simulatorForm.marketplace_id
+  );
+
+  const marketplaceSpecialRule = resolveScopedRule(marketplaceRules, context);
+  const activeMarketplaceRule = marketplaceSpecialRule || marketplaceGeneralRule;
+  const profitRule = resolveScopedRule(profitTargets, context);
+
+  const currentPrice = toNumber(simulatorForm.current_price, 0);
+  const desi = toNumber(simulatorForm.desi || getProductDesi(product), 0);
+
+  const shippingRule = resolveShippingRule(shippingRules, {
+    marketplaceId: simulatorForm.marketplace_id,
+    price: currentPrice,
+    desi,
+  });
+
+  const shippingCost = simulatorForm.shipping_cost_manual
+    ? toNumber(simulatorForm.shipping_cost, 0)
+    : simulatorForm.shipping_cost !== ''
+      ? toNumber(simulatorForm.shipping_cost, 0)
+      : toNumber(shippingRule?.shipping_cost, 0);
+
+  const cost = toNumber(simulatorForm.cost, 0);
+  const brandMinFloor = toNumber(simulatorForm.brand_min_price, 0);
+  const competitorPrice =
+    simulatorForm.competitor_price === '' ? 0 : toNumber(simulatorForm.competitor_price, 0);
+
+  const commissionRate =
+    simulatorForm.commission_rate === ''
+      ? toNumber(activeMarketplaceRule?.commission_rate, 0)
+      : toNumber(simulatorForm.commission_rate, 0);
+
+  const vatRate =
+    simulatorForm.vat_rate === ''
+      ? toNumber(activeMarketplaceRule?.vat_rate, 20)
+      : toNumber(simulatorForm.vat_rate, 20);
+
+  const fixedFee =
+    simulatorForm.fixed_fee === ''
+      ? toNumber(activeMarketplaceRule?.fixed_fee, 0)
+      : toNumber(simulatorForm.fixed_fee, 0);
+
+  const discountRate =
+    simulatorForm.marketplace_discount_rate === ''
+      ? toNumber(activeMarketplaceRule?.marketplace_discount_rate, 0)
+      : toNumber(simulatorForm.marketplace_discount_rate, 0);
+
+  const discountFunded = Boolean(simulatorForm.marketplace_discount_funded);
+
+  const minMarginRate =
+    simulatorForm.min_margin_rate === ''
+      ? toNumber(
+          profitRule?.min_margin_rate ??
+            profitRule?.min_profit_margin ??
+            activeMarketplaceRule?.min_margin_rate ??
+            10,
+          10
+        )
+      : toNumber(simulatorForm.min_margin_rate, 10);
+
+  const targetMarginRate =
+    simulatorForm.target_margin_rate === ''
+      ? toNumber(
+          profitRule?.target_margin_rate ??
+            profitRule?.target_profit_margin ??
+            activeMarketplaceRule?.target_margin_rate ??
+            18,
+          18
+        )
+      : toNumber(simulatorForm.target_margin_rate, 18);
+
+  const roundingEnding =
+    simulatorForm.rounding_ending === ''
+      ? toNumber(activeMarketplaceRule?.rounding_ending, 0.9)
+      : toNumber(simulatorForm.rounding_ending, 0.9);
+
+  const commissionBase = activeMarketplaceRule?.commission_base || 'net_ex_vat';
+
+  const matchedExtraDeductions = (Array.isArray(extraDeductions) ? extraDeductions : [])
+    .filter((item) => item && item.is_active !== false)
+    .filter((item) => String(item.marketplace_rule_id || '') === String(activeMarketplaceRule?.id || ''))
+    .map((item) => ({
+      name: item.name || 'Ek Kesinti',
+      type: item.calculation_type === 'fixed' ? 'fixed' : 'percentage',
+      rate: toNumber(item.rate, 0),
+      fixedAmount: toNumber(item.fixed_amount, 0),
+      baseAmountType: item.base_amount_type || 'net_ex_vat',
+    }));
+
+  function calculateFinancials(listPrice) {
+    const grossPrice = toNumber(listPrice, 0);
+    const customerSeenPrice =
+      discountFunded && discountRate > 0
+        ? grossPrice * (1 - discountRate / 100)
+        : grossPrice;
+
+    const netExVat = grossPrice / (1 + vatRate / 100);
+
+    const commissionBaseAmount =
+      commissionBase === 'gross_price' ? grossPrice : netExVat;
+
+    const commissionAmount = commissionBaseAmount * (commissionRate / 100);
+    const netAfterCommission = Math.max(0, netExVat - commissionAmount);
+
+    const extraDeductionsTotal = matchedExtraDeductions.reduce((sum, item) => {
+      if (item.type === 'fixed') {
+        return sum + item.fixedAmount;
+      }
+
+      let baseAmount = netExVat;
+      if (item.baseAmountType === 'gross_price') {
+        baseAmount = grossPrice;
+      } else if (item.baseAmountType === 'net_after_commission') {
+        baseAmount = netAfterCommission;
+      }
+
+      return sum + baseAmount * (item.rate / 100);
+    }, 0);
+
+    const profit =
+      netExVat - cost - shippingCost - fixedFee - commissionAmount - extraDeductionsTotal;
+
+    const marginRate = grossPrice > 0 ? (profit / grossPrice) * 100 : 0;
+
+    return {
+      grossPrice,
+      customerSeenPrice,
+      netExVat,
+      commissionAmount,
+      shippingCost,
+      platformServiceFee: fixedFee,
+      extraDeductionsTotal,
+      profit,
+      marginRate,
+    };
+  }
+
+  function solveListPriceForMargin(targetMargin) {
+    let low = Math.max(0.01, currentPrice, brandMinFloor);
+
+    if (discountFunded && discountRate > 0 && brandMinFloor > 0) {
+      low = Math.max(low, brandMinFloor / (1 - discountRate / 100));
+    }
+
+    let high = Math.max(low, cost * 3 + shippingCost + fixedFee + 100);
+    let highCalc = calculateFinancials(high);
+    let guard = 0;
+
+    while (highCalc.marginRate < targetMargin && guard < 25) {
+      high = high * 1.35 + 5;
+      highCalc = calculateFinancials(high);
+      guard += 1;
+    }
+
+    for (let i = 0; i < 40; i += 1) {
+      const mid = (low + high) / 2;
+      const calc = calculateFinancials(mid);
+
+      if (calc.marginRate >= targetMargin) {
+        high = mid;
+      } else {
+        low = mid;
+      }
+    }
+
+    return Number(high.toFixed(2));
+  }
+
+  const profitFloor = solveListPriceForMargin(minMarginRate);
+  const targetPrice = solveListPriceForMargin(targetMarginRate);
+
+  const protectedFloor = Math.max(currentPrice, brandMinFloor, profitFloor);
+
+  const discountAdjustedProtectedFloor =
+    discountFunded && discountRate > 0
+      ? protectedFloor / (1 - discountRate / 100)
+      : protectedFloor;
+
+  const recommendedPrice = roundUpPriceToEnding(
+    Math.max(protectedFloor, discountAdjustedProtectedFloor, targetPrice),
+    roundingEnding
+  );
+
+  const finalCalc = calculateFinancials(recommendedPrice);
+
+  const reasons = [];
+  const alerts = [];
+
+  if (marketplaceSpecialRule) {
+    reasons.push('Ürüne/kategoriye/pazaryerine en uygun özel kural uygulandı.');
+  } else if (marketplaceGeneralRule) {
+    reasons.push('Özel kural bulunamadı, fallback kural uygulandı.');
+  }
+
+  if (shippingRule) {
+    reasons.push('Fiyat ve desiye göre kargo kuralı eşleşti.');
+  }
+
+  if (profitRule) {
+    reasons.push('Kâr hedefi kuralı hesaplamaya dahil edildi.');
+  }
+
+  if (matchedExtraDeductions.length) {
+    reasons.push('Bağlı ek kesintiler finansal kırılıma dahil edildi.');
+  }
+
+  if (brandMinFloor > 0) {
+    alerts.push({
+      title: 'Minimum fiyat koruması',
+      message: `Firma minimum fiyatı ${formatCurrency(brandMinFloor)} olarak dikkate alındı.`,
+    });
+  }
+
+  if (discountFunded && discountRate > 0) {
+    alerts.push({
+      title: 'Pazaryeri indirimi etkisi',
+      message: `Fonlu indirim nedeniyle liste fiyatı yukarı taşındı. Müşteri fiyatı ${formatCurrency(
+        finalCalc.customerSeenPrice
+      )}.`,
+    });
+  }
+
+  if (competitorPrice > 0) {
+    alerts.push({
+      title: 'Rakip fiyat farkı',
+      message:
+        recommendedPrice > competitorPrice
+          ? `Önerilen fiyat rakip fiyatın üstünde (${formatCurrency(competitorPrice)}).`
+          : `Önerilen fiyat rakip fiyatın altında/eşit (${formatCurrency(competitorPrice)}).`,
+    });
+  }
+
+  let riskLevel = 'low';
+  if (
+    finalCalc.marginRate < minMarginRate ||
+    (competitorPrice > 0 && recommendedPrice > competitorPrice * 1.15)
+  ) {
+    riskLevel = 'high';
+  } else if (alerts.length >= 2 || finalCalc.marginRate < targetMarginRate) {
+    riskLevel = 'medium';
+  }
+
+  return {
+    source: 'frontend-fallback',
+    product: {
+      id: product.id,
+      stockCode: product.stock_code || '',
+      name: product.name || product.product_name || `Ürün #${product.id}`,
+      categoryName: product.category_name || '—',
+    },
+    marketplace: {
+      id: marketplace.id,
+      marketplace_name: marketplace.marketplace_name || '—',
+    },
+    matchedRules: {
+      marketplaceGeneralRule: marketplaceGeneralRule
+        ? {
+            id: marketplaceGeneralRule.id,
+            name: buildRuleDisplayName(marketplaceGeneralRule),
+          }
+        : null,
+      marketplaceSpecialRule: marketplaceSpecialRule
+        ? {
+            id: marketplaceSpecialRule.id,
+            name: buildRuleDisplayName(marketplaceSpecialRule),
+          }
+        : null,
+      profitRule: profitRule
+        ? {
+            id: profitRule.id,
+            minMarginRate: toNumber(
+              profitRule.min_margin_rate ?? profitRule.min_profit_margin,
+              minMarginRate
+            ),
+            targetMarginRate: toNumber(
+              profitRule.target_margin_rate ?? profitRule.target_profit_margin,
+              targetMarginRate
+            ),
+          }
+        : null,
+      shippingRule: shippingRule
+        ? {
+            id: shippingRule.id,
+            name: buildShippingRuleDisplayName(shippingRule),
+          }
+        : null,
+      extraDeductions: matchedExtraDeductions,
+    },
+    floors: {
+      protectedFloor,
+      profitFloor,
+      targetPrice,
+      brandMinFloor,
+      discountAdjustedProtectedFloor,
+    },
+    calculation: {
+      grossPrice: finalCalc.grossPrice,
+      customerSeenPrice: finalCalc.customerSeenPrice,
+      netExVat: finalCalc.netExVat,
+      commissionAmount: finalCalc.commissionAmount,
+      shippingCost: finalCalc.shippingCost,
+      platformServiceFee: finalCalc.platformServiceFee,
+      extraDeductionsTotal: finalCalc.extraDeductionsTotal,
+      profit: finalCalc.profit,
+      marginRate: finalCalc.marginRate,
+    },
+    decision: {
+      recommendedPrice,
+      riskLevel,
+      reasons,
+      alerts,
+    },
+  };
+}
+
 function Field({ label, children, hint }) {
   return (
     <label style={styles.field}>
@@ -465,7 +833,10 @@ function RulesSimulatorModal({
   onCalculate,
   result,
   calculating,
+  infoMessage,
+  errorMessage,
 }) {
+
   if (!open) return null;
 
   return (
@@ -486,6 +857,9 @@ function RulesSimulatorModal({
         </div>
 
         <div style={styles.modalBody}>
+          {infoMessage ? <div style={styles.infoAlert}>{infoMessage}</div> : null}
+          {errorMessage ? <div style={styles.errorAlert}>{errorMessage}</div> : null}
+
           <div style={styles.modalGrid} className="rules-simulator-responsive">
             <section style={styles.simulatorSection}>
               <div style={styles.simulatorSectionHeader}>
@@ -962,12 +1336,13 @@ export default function RulesPage() {
   const router = useRouter();
   const fileInputRef = useRef(null);
 
-  const [activeTab, setActiveTab] = useState('marketplace');
-  const [loadingData, setLoadingData] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [showShippingHelp, setShowShippingHelp] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [simulatorCalculating, setSimulatorCalculating] = useState(false);
+  const [simulatorInfo, setSimulatorInfo] = useState('');
+  const [simulatorError, setSimulatorError] = useState('');
+  const [simulatorForm, setSimulatorForm] = useState(createEmptySimulatorForm());
+  const [simulatorResult, setSimulatorResult] = useState(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1391,44 +1766,96 @@ export default function RulesPage() {
   }
 
   async function handleSimulatorCalculate() {
-    if (!simulatorForm.marketplace_id) {
-      setError('Simülasyon için pazaryeri seçmelisin');
-      return;
+  setSimulatorError('');
+  setSimulatorInfo('');
+  setError('');
+
+  if (!simulatorForm.marketplace_id) {
+    setSimulatorError('Simülasyon için pazaryeri seçmelisin');
+    return;
+  }
+
+  if (!simulatorForm.product_id) {
+    setSimulatorError('Simülasyon için ürün seçmelisin');
+    return;
+  }
+
+  setSimulatorCalculating(true);
+
+  try {
+    const overrides = {
+      cost: simulatorForm.cost === '' ? undefined : toNumber(simulatorForm.cost),
+      currentPrice: simulatorForm.current_price === '' ? undefined : toNumber(simulatorForm.current_price),
+      desi: simulatorForm.desi === '' ? undefined : toNumber(simulatorForm.desi),
+      competitorPrice:
+        simulatorForm.competitor_price === '' ? undefined : toNumber(simulatorForm.competitor_price),
+      brandMinPrice:
+        simulatorForm.brand_min_price === '' ? undefined : toNumber(simulatorForm.brand_min_price),
+      commissionRate:
+        simulatorForm.commission_rate === '' ? undefined : toNumber(simulatorForm.commission_rate),
+      vatRate:
+        simulatorForm.vat_rate === '' ? undefined : toNumber(simulatorForm.vat_rate),
+      fixedFee:
+        simulatorForm.fixed_fee === '' ? undefined : toNumber(simulatorForm.fixed_fee),
+      marketplaceDiscountRate:
+        simulatorForm.marketplace_discount_rate === ''
+          ? undefined
+          : toNumber(simulatorForm.marketplace_discount_rate),
+      marketplaceDiscountFunded: Boolean(simulatorForm.marketplace_discount_funded),
+      minMarginRate:
+        simulatorForm.min_margin_rate === '' ? undefined : toNumber(simulatorForm.min_margin_rate),
+      targetMarginRate:
+        simulatorForm.target_margin_rate === '' ? undefined : toNumber(simulatorForm.target_margin_rate),
+      roundingEnding:
+        simulatorForm.rounding_ending === '' ? undefined : toNumber(simulatorForm.rounding_ending),
+    };
+
+    if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
+      overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
     }
 
-    if (!simulatorForm.product_id) {
-      setError('Simülasyon için ürün seçmelisin');
-      return;
-    }
-
-    setSimulatorCalculating(true);
-    setError('');
+    const payload = {
+      productId: Number(simulatorForm.product_id),
+      marketplaceId: Number(simulatorForm.marketplace_id),
+      overrides,
+    };
 
     try {
-      const overrides = {
-        cost: simulatorForm.cost === '' ? undefined : toNumber(simulatorForm.cost),
-        currentPrice: simulatorForm.current_price === '' ? undefined : toNumber(simulatorForm.current_price),
-        desi: simulatorForm.desi === '' ? undefined : toNumber(simulatorForm.desi),
-        competitorPrice:
-          simulatorForm.competitor_price === '' ? undefined : toNumber(simulatorForm.competitor_price),
-        brandMinPrice:
-          simulatorForm.brand_min_price === '' ? undefined : toNumber(simulatorForm.brand_min_price),
-        commissionRate:
-          simulatorForm.commission_rate === '' ? undefined : toNumber(simulatorForm.commission_rate),
-        vatRate: simulatorForm.vat_rate === '' ? undefined : toNumber(simulatorForm.vat_rate),
-        fixedFee: simulatorForm.fixed_fee === '' ? undefined : toNumber(simulatorForm.fixed_fee),
-        marketplaceDiscountRate:
-          simulatorForm.marketplace_discount_rate === ''
-            ? undefined
-            : toNumber(simulatorForm.marketplace_discount_rate),
-        marketplaceDiscountFunded: Boolean(simulatorForm.marketplace_discount_funded),
-        minMarginRate:
-          simulatorForm.min_margin_rate === '' ? undefined : toNumber(simulatorForm.min_margin_rate),
-        targetMarginRate:
-          simulatorForm.target_margin_rate === '' ? undefined : toNumber(simulatorForm.target_margin_rate),
-        roundingEnding:
-          simulatorForm.rounding_ending === '' ? undefined : toNumber(simulatorForm.rounding_ending),
-      };
+      const data = await postSimulatorRequest({
+        token,
+        payload,
+      });
+
+      setSimulatorResult(data);
+      setSimulatorInfo('');
+      return;
+    } catch (err) {
+      if (!isMissingSimulateEndpointError(err)) {
+        throw err;
+      }
+    }
+
+    const localResult = buildLocalSimulationResult({
+      simulatorForm,
+      products,
+      marketplaces,
+      marketplaceRules,
+      shippingRules,
+      profitTargets,
+      extraDeductions,
+    });
+
+    setSimulatorResult(localResult);
+    setSimulatorInfo(
+      'Simulate endpoint henüz backend tarafında yok. Geçici olarak frontend fallback sonucu gösteriliyor.'
+    );
+  } catch (err) {
+    setSimulatorError(getErrorMessage(err));
+  } finally {
+    setSimulatorCalculating(false);
+  }
+}
+
 
       if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
         overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
@@ -2576,22 +3003,59 @@ export default function RulesPage() {
         )}
       </div>
 
-      <RulesSimulatorModal
-        open={isSimulatorOpen}
-        onClose={handleCloseSimulator}
-        marketplaces={marketplaces}
-        products={products}
-        simulatorForm={simulatorForm}
-        setSimulatorForm={setSimulatorForm}
-        onApplyDefaults={applySimulatorDefaults}
-        onCalculate={handleSimulatorCalculate}
-        result={simulatorResult}
-        calculating={simulatorCalculating}
+     <RulesSimulatorModal
+       open={isSimulatorOpen}
+       onClose={handleCloseSimulator}
+       marketplaces={marketplaces}
+       products={products}
+       simulatorForm={simulatorForm}
+       setSimulatorForm={setSimulatorForm}
+       onApplyDefaults={applySimulatorDefaults}
+       onCalculate={handleSimulatorCalculate}
+       result={simulatorResult}
+       calculating={simulatorCalculating}
+       infoMessage={simulatorInfo}
+       errorMessage={simulatorError}
+     />
       />
     </>
   );
 }
+const ENDPOINT_MISSING_MESSAGES = [
+  'Cannot POST /api/rules/simulate',
+  'Cannot POST /rules/simulate',
+  '404',
+  'Not Found',
+  'endpoint_missing',
+];
 
+function isMissingSimulateEndpointError(error) {
+  const message = String(error?.message || error || '');
+  return ENDPOINT_MISSING_MESSAGES.some((item) => message.includes(item));
+}
+
+async function postSimulatorRequest({ token, payload }) {
+  const response = await fetch(`${API_URL}/api/rules/simulate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 404) {
+    throw new Error('endpoint_missing');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Simülatör isteği başarısız (${response.status})`);
+  }
+
+  return data;
+}
 const styles = {
   page: {
     padding: '28px 32px',
@@ -2677,6 +3141,27 @@ const styles = {
     fontWeight: 500,
     fontSize: 14,
   },
+infoAlert: {
+  padding: '12px 16px',
+  borderRadius: 12,
+  background: '#eff6ff',
+  border: '1px solid #bfdbfe',
+  color: '#1d4ed8',
+  marginBottom: 16,
+  fontWeight: 500,
+  fontSize: 14,
+},
+errorAlert: {
+  padding: '12px 16px',
+  borderRadius: 12,
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  color: '#b91c1c',
+  marginBottom: 16,
+  fontWeight: 500,
+  fontSize: 14,
+},
+
   tabs: {
     display: 'flex',
     gap: 8,
