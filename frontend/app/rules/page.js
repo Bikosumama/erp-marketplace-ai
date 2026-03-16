@@ -34,8 +34,19 @@ const emptyShippingRule = {
   marketplace_id: '',
   min_price: 0,
   max_price: '',
+  min_desi: 0,
+  max_desi: '',
   shipping_cost: 0,
-  priority: 0,
+  priority: 100,
+  free_shipping_enabled: false,
+  free_shipping_threshold: 1000,
+  free_shipping_funding_type: 'seller',
+  free_shipping_marketplace_support: 0,
+  multi_qty_profit_protection: true,
+  profit_check_quantities: '1,2',
+  profit_safety_buffer_type: 'fixed',
+  profit_safety_buffer_value: 10,
+  loss_prevention_mode: 'block_loss',
   is_active: true,
   notes: '',
 };
@@ -569,6 +580,19 @@ export default function RulesPage() {
         {!loadingData && activeTab === 'shipping' ? (
           <div style={styles.sectionGrid}>
             <Card title={editingShippingRuleId ? 'Kargo Kuralını Düzenle' : 'Yeni Kargo Kuralı'}>
+              <div style={styles.infoBox}>
+                <strong>Kargo Kuralları Nasıl Çalışır?</strong>
+                <div style={{ marginTop: 8 }}>
+                  Bu ekranda fiyat ve desi aralıklarına göre kargo maliyeti tanımlanır.
+                  Bir ürün için birden fazla kural eşleşirse <strong>öncelik değeri küçük olan</strong> kural uygulanır.
+                  Yani <strong>1</strong>, <strong>5</strong>'ten önce çalışır.
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  Ücretsiz kargo koruması açıksa sistem sadece tek ürünü değil, seçilen adet senaryolarını da kontrol eder.
+                  Örneğin müşteri 2 adet alınca sipariş ücretsiz kargoya geçiyor ve toplam kâr düşüyorsa,
+                  sistem fiyatı korumaya alır veya uyarı üretir.
+                </div>
+              </div>
               <form onSubmit={handleShippingSubmit}>
                 <div style={styles.formGrid}>
                   <SelectField
@@ -597,6 +621,16 @@ export default function RulesPage() {
                     onChange={(value) => setShippingForm((current) => ({ ...current, max_price: value }))}
                   />
                   <NumberField
+                    label="Min. Desi"
+                    value={shippingForm.min_desi}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, min_desi: value }))}
+                  />
+                  <NumberField
+                    label="Max. Desi"
+                    value={shippingForm.max_desi}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, max_desi: value }))}
+                  />
+                  <NumberField
                     label="Kargo Maliyeti"
                     value={shippingForm.shipping_cost}
                     onChange={(value) => setShippingForm((current) => ({ ...current, shipping_cost: value }))}
@@ -606,6 +640,65 @@ export default function RulesPage() {
                     value={shippingForm.priority}
                     onChange={(value) => setShippingForm((current) => ({ ...current, priority: value }))}
                     step="1"
+                  />
+                  <CheckboxField
+                    label="Ücretsiz Kargo Aktif"
+                    checked={Boolean(shippingForm.free_shipping_enabled)}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_enabled: value }))}
+                  />
+                  <NumberField
+                    label="Ücretsiz Kargo Eşiği"
+                    value={shippingForm.free_shipping_threshold}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_threshold: value }))}
+                  />
+                  <SelectField
+                    label="Karşılama Tipi"
+                    value={shippingForm.free_shipping_funding_type}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_funding_type: value }))}
+                    options={[
+                      ['seller', 'Satıcı Karşılıyor'],
+                      ['marketplace', 'Pazaryeri Karşılıyor'],
+                      ['shared', 'Paylaşımlı'],
+                    ]}
+                  />
+                  <NumberField
+                    label="Pazaryeri Destek Tutarı"
+                    value={shippingForm.free_shipping_marketplace_support}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_marketplace_support: value }))}
+                  />
+                  <CheckboxField
+                    label="Çoklu Adet Kârlılık Kontrolü"
+                    checked={Boolean(shippingForm.multi_qty_profit_protection)}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, multi_qty_profit_protection: value }))}
+                  />
+                  <TextField
+                    label="Kontrol Edilecek Adetler"
+                    value={shippingForm.profit_check_quantities}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_check_quantities: value }))}
+                  />
+                  <SelectField
+                    label="Güvenlik Tampon Tipi"
+                    value={shippingForm.profit_safety_buffer_type}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_safety_buffer_type: value }))}
+                    options={[
+                      ['fixed', 'Sabit Tutar'],
+                      ['percent', 'Yüzde'],
+                    ]}
+                  />
+                  <NumberField
+                    label="Güvenlik Tampon Değeri"
+                    value={shippingForm.profit_safety_buffer_value}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_safety_buffer_value: value }))}
+                  />
+                  <SelectField
+                    label="Zarar Önleme Modu"
+                    value={shippingForm.loss_prevention_mode}
+                    onChange={(value) => setShippingForm((current) => ({ ...current, loss_prevention_mode: value }))}
+                    options={[
+                      ['block_loss', 'Zararı Engelle'],
+                      ['warn_only', 'Sadece Uyar'],
+                      ['ignore', 'Yok Say'],
+                    ]}
                   />
                   <CheckboxField
                     label="Aktif"
@@ -631,13 +724,35 @@ export default function RulesPage() {
 
             <Card title="Kargo Baremleri">
               <SimpleTable
-                headers={['Kapsam', 'Pazaryeri', 'Min. Fiyat', 'Max. Fiyat', 'Kargo', 'Aktif', 'İşlemler']}
+                headers={[
+                  'Kapsam',
+                  'Pazaryeri',
+                  'Min. Fiyat',
+                  'Max. Fiyat',
+                  'Min. Desi',
+                  'Max. Desi',
+                  'Kargo',
+                  'Öncelik',
+                  'Ücretsiz Kargo',
+                  'Eşik',
+                  'Karşılama',
+                  'Kontrol Adetleri',
+                  'Aktif',
+                  'İşlemler',
+                ]}
                 rows={shippingRules.map((row) => [
                   row.scope_type,
                   row.marketplace_name || 'General',
                   row.min_price,
                   row.max_price ?? '—',
+                  row.min_desi ?? 0,
+                  row.max_desi ?? '—',
                   row.shipping_cost,
+                  row.priority,
+                  boolText(row.free_shipping_enabled),
+                  row.free_shipping_threshold ?? '—',
+                  row.free_shipping_funding_type || 'seller',
+                  row.profit_check_quantities || '1,2',
                   boolText(row.is_active),
                   <ActionButtons
                     key={`shipping-${row.id}`}
