@@ -33,13 +33,25 @@ function numberOrZero(value) {
 
 function buildRecommendationResponseRow(row) {
   const metadata = parseRecommendationMetadata(row.metadata);
+  const reasons = Array.isArray(metadata.reasons) ? metadata.reasons : [];
+  const note = row.reason_text || '';
   return {
-    id: row.id, product_id: row.product_id, product_name: row.product_name, stock_code: row.stock_code,
-    marketplace_id: row.marketplace_id, marketplace_name: row.marketplace_name,
+    id: row.id,
+    product_id: row.product_id,
+    product_name: row.product_name,
+    stock_code: row.stock_code,
+    marketplace_id: row.marketplace_id,
+    marketplace_name: row.marketplace_name,
     category_name: row.category_name || metadata.category_name || '',
-    purchase_price: numberOrZero(row.purchase_price), current_price: numberOrZero(row.current_price),
-    recommended_price: numberOrZero(row.recommended_price), floor_price: numberOrZero(row.floor_price),
-    target_price: numberOrZero(row.target_price), protected_floor: numberOrZero(row.protected_floor),
+    purchase_price: numberOrZero(row.purchase_price),
+    cost: numberOrZero(row.purchase_price),
+    current_price: numberOrZero(row.current_price),
+    recommended_price: numberOrZero(row.recommended_price),
+    final_listing_price: numberOrZero(row.recommended_price),
+    floor_price: numberOrZero(row.floor_price),
+    profit_floor: numberOrZero(row.floor_price),
+    target_price: numberOrZero(row.target_price),
+    protected_floor: numberOrZero(row.protected_floor || metadata.protected_floor),
     brand_min_price: numberOrZero(row.brand_min_price || row.product_brand_min_price || metadata.brand_min_price),
     marketplace_discount_rate: numberOrZero(row.marketplace_discount_rate || metadata.marketplace_discount_rate),
     discount_adjusted_protected_price: numberOrZero(row.discount_adjusted_protected_price || metadata.discount_adjusted_protected_price),
@@ -48,13 +60,23 @@ function buildRecommendationResponseRow(row) {
     commission_amount: numberOrZero(row.commission_amount || metadata.commission_amount),
     extra_deductions_total: numberOrZero(row.extra_deductions_total || metadata.extra_deductions_total),
     competitor_price: row.competitor_price == null ? null : numberOrZero(row.competitor_price),
-    current_margin_rate: numberOrZero(row.current_margin_rate), projected_margin_rate: numberOrZero(row.projected_margin_rate),
-    profit_margin: numberOrZero(row.profit_margin), recommendation_type: row.recommendation_type,
-    risk_level: row.risk_level, confidence: numberOrZero(row.confidence), quality_score: row.quality_score,
-    reason: row.reason_text, status: row.status, created_at: row.created_at, metadata,
-    reasons: Array.isArray(metadata.reasons) ? metadata.reasons : [],
+    current_margin_rate: numberOrZero(row.current_margin_rate),
+    projected_margin_rate: numberOrZero(row.projected_margin_rate),
+    profit_margin: numberOrZero(row.profit_margin),
+    projected_profit: numberOrZero(row.profit_margin),
+    recommendation_type: row.recommendation_type,
+    risk_level: row.risk_level,
+    confidence: numberOrZero(row.confidence),
+    quality_score: row.quality_score,
+    reason: row.reason_text,
+    status: row.status,
+    created_at: row.created_at,
+    metadata,
+    reasons,
     pricing_rule_scope: metadata.marketplace_rule_scope || metadata.pricing_rule_scope || '',
-    shipping_rule_scope: metadata.shipping_rule_scope || '', note: row.reason_text || '',
+    shipping_rule_scope: metadata.shipping_rule_scope || '',
+    note,
+    warning: reasons.join(' | '),
   };
 }
 
@@ -155,7 +177,39 @@ router.get('/export', async (req, res) => {
     const recommendations = await fetchRecommendationRows({ status: req.query.status, productId: req.query.product_id });
     if (!recommendations.length) return res.status(404).json({ error: 'Kayıt bulunamadı' });
     const now = new Date();
-    await sendWorkbook(res, { filename: `fiyat-analizi-${now.toISOString().split('T')[0]}.xlsx`, sheets: [{ name: 'Fiyat Analizi', columns: [ { header: 'Ürün ID', key: 'product_id', width: 10 }, { header: 'Stok Kodu', key: 'stock_code', width: 20 }, { header: 'Ürün Adı', key: 'product_name', width: 30 }, { header: 'Pazaryeri', key: 'marketplace_name', width: 15 }, { header: 'Güncel Fiyat', key: 'current_price', width: 15 }, { header: 'Önerilen Fiyat', key: 'recommended_price', width: 15 } ], rows: recommendations }] });
+    await sendWorkbook(res, {
+      filename: `fiyat-analizi-${now.toISOString().split('T')[0]}.xlsx`,
+      sheets: [{
+        name: 'Fiyat Analizi',
+        columns: [
+          { header: 'product_id', key: 'product_id', width: 10 },
+          { header: 'stock_code', key: 'stock_code', width: 18 },
+          { header: 'product_name', key: 'product_name', width: 28 },
+          { header: 'marketplace_name', key: 'marketplace_name', width: 18 },
+          { header: 'current_price', key: 'current_price', width: 14 },
+          { header: 'purchase_price', key: 'purchase_price', width: 14 },
+          { header: 'cost', key: 'cost', width: 14 },
+          { header: 'brand_min_price', key: 'brand_min_price', width: 16 },
+          { header: 'profit_floor', key: 'profit_floor', width: 14 },
+          { header: 'protected_floor', key: 'protected_floor', width: 16 },
+          { header: 'marketplace_discount_rate', key: 'marketplace_discount_rate', width: 18 },
+          { header: 'discount_adjusted_protected_price', key: 'discount_adjusted_protected_price', width: 24 },
+          { header: 'final_listing_price', key: 'final_listing_price', width: 16 },
+          { header: 'customer_seen_price', key: 'customer_seen_price', width: 16 },
+          { header: 'shipping_cost', key: 'shipping_cost', width: 14 },
+          { header: 'commission_amount', key: 'commission_amount', width: 16 },
+          { header: 'extra_deductions_total', key: 'extra_deductions_total', width: 18 },
+          { header: 'projected_profit', key: 'projected_profit', width: 16 },
+          { header: 'projected_margin_rate', key: 'projected_margin_rate', width: 18 },
+          { header: 'pricing_rule_scope', key: 'pricing_rule_scope', width: 18 },
+          { header: 'shipping_rule_scope', key: 'shipping_rule_scope', width: 18 },
+          { header: 'recommended_price', key: 'recommended_price', width: 16 },
+          { header: 'note', key: 'note', width: 36 },
+          { header: 'warning', key: 'warning', width: 36 },
+        ],
+        rows: recommendations,
+      }],
+    });
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 

@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
+import ExcelToolbar from '../../components/ExcelToolbar';
+import { downloadExcelFile } from '../../lib/downloadExcel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -47,6 +49,8 @@ export default function ProductsPage() {
   const [importMapping, setImportMapping] = useState({});
   const [importResult, setImportResult] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [downloadingExport, setDownloadingExport] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
@@ -217,7 +221,7 @@ export default function ProductsPage() {
       if (!res.ok) { setError(data.error || 'Önizleme başarısız'); return; }
       setImportPreview(data);
       const defaultMapping = {};
-      const coreFields = ['stock_code','name','description','barcode','brand','category_path','cost','sale_price','list_price','currency','vat_rate','status'];
+      const coreFields = ['stock_code','name','description','barcode','brand','category_path','cost','sale_price','list_price','brand_min_price','currency','vat_rate','status'];
       coreFields.forEach((f) => {
         const found = data.headers.find((h) => h.toLowerCase().replace(/\s/g,'_') === f);
         if (found) defaultMapping[f] = found;
@@ -286,6 +290,49 @@ export default function ProductsPage() {
     }
   };
 
+  const handleExportExcel = async () => {
+    if (!token) return;
+    setDownloadingExport(true);
+    setError('');
+    try {
+      await downloadExcelFile({
+        url: `${API_URL}/api/products/export`,
+        token,
+        defaultFilename: 'products.xlsx',
+      });
+    } catch (err) {
+      setError(err.message || 'Excel dışa aktarma başarısız');
+    } finally {
+      setDownloadingExport(false);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    if (!token) return;
+    setDownloadingTemplate(true);
+    setError('');
+    try {
+      await downloadExcelFile({
+        url: `${API_URL}/api/products/template`,
+        token,
+        defaultFilename: 'products-template.xlsx',
+      });
+    } catch (err) {
+      setError(err.message || 'Şablon indirilemedi');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
+
+  const handleToolbarImport = (file) => {
+    if (!file) return;
+    setImportFile(file);
+    setImportPreview(null);
+    setImportResult(null);
+    setTab('import');
+    setSuccess(`Dosya seçildi: ${file.name}`);
+  };
+
   if (loading) return <div style={s.loading}>Yükleniyor...</div>;
   if (!user) return null;
 
@@ -296,9 +343,19 @@ export default function ProductsPage() {
       <Navigation />
       <main style={s.main}>
         <div style={s.header}>
-          <h1 style={s.heading}>g    Ürünler</h1>
+          <div>
+            <h1 style={s.heading}>Ürünler</h1>
+            <p style={s.subheading}>Liste varsa export, yönetim ekranı varsa import standardını bu modülde başlatıyoruz.</p>
+          </div>
           <div style={s.headerBtns}>
-            <button onClick={() => setTab('import')} style={s.importBtn}>⬆ Excel / CSV İçe Aktar</button>
+            <ExcelToolbar
+              onExport={handleExportExcel}
+              onTemplate={handleDownloadTemplate}
+              onImportFileSelected={handleToolbarImport}
+              exportLoading={downloadingExport}
+              templateLoading={downloadingTemplate}
+              importLoading={importing}
+            />
             <button onClick={openCreate} style={s.btn}>+ Yeni Ürün</button>
           </div>
         </div>
@@ -309,7 +366,7 @@ export default function ProductsPage() {
         <div style={s.tabs}>
           {['list','form','import'].map((t) => (
             <button key={t} onClick={() => setTab(t)} style={tab === t ? s.activeTab : s.tabBtn}>
-              {t === 'list' ? 'g    Liste' : t === 'form' ? (editProduct ? '✏️ Düzenle' : ' ?  Yeni') : 'g    İçe Aktar'}
+              {t === 'list' ? 'Liste' : t === 'form' ? (editProduct ? 'Düzenle' : 'Yeni') : 'İçe Aktar'}
             </button>
           ))}
         </div>
@@ -364,7 +421,7 @@ export default function ProductsPage() {
         {tab === 'form' && (
           <div style={s.card}>
             <div style={s.formTabs}>
-              {[['general','g    Genel'],['pricing','g    Fiyat'],['marketplaces','g    Pazaryerleri']].map(([t,label]) => (
+              {[['general','Genel'],['pricing','Fiyat'],['marketplaces','Pazaryerleri']].map(([t,label]) => (
                 <button key={t} onClick={() => setFormTab(t)} style={formTab === t ? s.activeFormTab : s.formTabBtn}>{label}</button>
               ))}
             </div>
@@ -429,7 +486,7 @@ export default function ProductsPage() {
                 </div>
               )}
               <div style={s.formActions}>
-                <button type="submit" style={s.submitBtn}>{editProduct ? 'g    Güncelle' : '✅ Kaydet'}</button>
+                <button type="submit" style={s.submitBtn}>{editProduct ? 'Güncelle' : 'Kaydet'}</button>
                 <button type="button" onClick={() => setTab('list')} style={s.cancelBtn}>İptal</button>
               </div>
             </form>
@@ -438,11 +495,11 @@ export default function ProductsPage() {
 
         {tab === 'import' && (
           <div style={s.card}>
-            <h2 style={s.sectionTitle}>g    Excel / CSV İçe Aktar</h2>
+            <h2 style={s.sectionTitle}>Excel / CSV İçe Aktar</h2>
             <p style={s.hint}>Desteklenen formatlar: .xlsx, .xls, .csv — Zorunlu kolonlar: <b>stock_code</b>, <b>name</b></p>
             <div style={s.importSection}>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { setImportFile(e.target.files[0]); setImportPreview(null); setImportResult(null); }} style={s.fileInput} />
-              <button onClick={handleImportPreview} disabled={!importFile} style={s.btn}>g    Önizle</button>
+              <button onClick={handleImportPreview} disabled={!importFile} style={s.btn}>Önizle</button>
             </div>
             {importPreview && (
               <div>
@@ -453,7 +510,7 @@ export default function ProductsPage() {
                     ['stock_code','Stok Kodu *'],['name','Ad *'],['description','Açıklama'],
                     ['barcode','Barkod'],['brand','Marka'],['category_path','Kategori Yolu'],
                     ['cost','Maliyet'],['sale_price','Satış Fiyatı'],['list_price','Liste Fiyatı'],
-                    ['currency','Para Birimi'],['vat_rate','KDV %'],['status','Durum'],
+                    ['brand_min_price','Firma Minimum Fiyatı'],['currency','Para Birimi'],['vat_rate','KDV %'],['status','Durum'],
                     ...marketplaces.flatMap((m) => [
                       [`marketplace_${m.id}_barcode`, `${m.marketplace_name} Barkod`],
                       [`marketplace_${m.id}_sku`, `${m.marketplace_name} SKU`],
@@ -549,6 +606,7 @@ const s = {
   main: { padding: '32px', maxWidth: '1400px', margin: '0 auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   heading: { fontSize: '28px', color: '#2c3e50', margin: 0 },
+  subheading: { margin: '8px 0 0', color: '#6b7280', fontSize: '14px' },
   headerBtns: { display: 'flex', gap: '10px' },
   btn: { padding: '10px 20px', backgroundColor: '#3498db', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
   importBtn: { padding: '10px 20px', backgroundColor: '#8e44ad', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
