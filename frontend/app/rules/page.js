@@ -97,22 +97,6 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function normalizeBoolean(value, fallback = false) {
-  if (value === true || value === false) return value;
-  if (value === 1 || value === '1') return true;
-  if (value === 0 || value === '0') return false;
-  if (typeof value === 'string') {
-    const lowered = value.trim().toLowerCase();
-    if (['true', 'yes', 'evet', 'on'].includes(lowered)) return true;
-    if (['false', 'no', 'hayır', 'hayir', 'off'].includes(lowered)) return false;
-  }
-  return fallback;
-}
-
 function formatBool(value) {
   return value ? 'Evet' : 'Hayır';
 }
@@ -212,7 +196,7 @@ function resolveScopedRule(rules = [], context = {}) {
   const now = new Date();
 
   const candidates = (Array.isArray(rules) ? rules : [])
-    .filter((rule) => rule && normalizeBoolean(rule.is_active, true))
+    .filter((rule) => rule && rule.is_active !== false)
     .filter((rule) => isRuleCurrentlyValid(rule, now))
     .filter((rule) => {
       const scope = String(rule.scope_type || 'general').toLowerCase();
@@ -253,13 +237,27 @@ function resolveScopedRule(rules = [], context = {}) {
   return candidates[0] || null;
 }
 
+function resolveBaseMarketplaceRule(rules = [], marketplaceId) {
+  return resolveScopedRule(
+    (rules || []).filter((rule) => {
+      const scope = String(rule?.scope_type || 'general').toLowerCase();
+      return scope === 'general' || scope === 'marketplace';
+    }),
+    {
+      marketplaceId,
+      categoryId: '',
+      productId: '',
+    }
+  );
+}
+
 function resolveShippingRule(shippingRules = [], context = {}) {
   const now = new Date();
   const currentPrice = toNumber(context.price ?? context.customerSeenPrice ?? context.listingPrice, 0);
   const currentDesi = toNumber(context.desi ?? context.totalDesi, 0);
 
   const candidates = (Array.isArray(shippingRules) ? shippingRules : [])
-    .filter((rule) => rule && normalizeBoolean(rule.is_active, true))
+    .filter((rule) => rule && rule.is_active !== false)
     .filter((rule) => isRuleCurrentlyValid(rule, now))
     .filter((rule) => {
       const scope = String(rule.scope_type || (rule.marketplace_id ? 'marketplace' : 'general')).toLowerCase();
@@ -272,13 +270,8 @@ function resolveShippingRule(shippingRules = [], context = {}) {
         return false;
       }
 
-      if (!inRange(currentPrice, rule.min_price, rule.max_price)) {
-        return false;
-      }
-
-      if (!inRange(currentDesi, rule.min_desi, rule.max_desi)) {
-        return false;
-      }
+      if (!inRange(currentPrice, rule.min_price, rule.max_price)) return false;
+      if (!inRange(currentDesi, rule.min_desi, rule.max_desi)) return false;
 
       return true;
     });
@@ -328,223 +321,6 @@ function getProductDesi(product = {}) {
   }
 
   return 0;
-}
-
-function getExtraDeductionsForRule(extraDeductions = [], marketplaceRuleId) {
-  return (Array.isArray(extraDeductions) ? extraDeductions : [])
-    .filter((item) => item && normalizeBoolean(item.is_active, true))
-    .filter((item) => {
-      if (!marketplaceRuleId) return false;
-      return Number(item.marketplace_rule_id) === Number(marketplaceRuleId);
-    })
-    .filter((item) => isRuleCurrentlyValid(item))
-    .sort((a, b) => {
-      const priorityDiff = toNumber(a.priority, 9999) - toNumber(b.priority, 9999);
-      if (priorityDiff !== 0) return priorityDiff;
-      return toNumber(a.id) - toNumber(b.id);
-    });
-}
-
-function roundUpToEnding(value, ending = 0.9) {
-  const number = toNumber(value, 0);
-  const normalizedEnding = clamp(toNumber(ending, 0.9), 0, 0.99);
-  const integerPart = Math.floor(number);
-  const candidate = integerPart + normalizedEnding;
-
-  if (candidate >= number) {
-    return Number(candidate.toFixed(2));
-  }
-
-  return Number((integerPart + 1 + normalizedEnding).toFixed(2));
-}
-
-function getCommissionBaseAmount({ grossPrice, netExVat, commissionBase }) {
-  const base = String(commissionBase || 'net_ex_vat').toLowerCase();
-  if (base === 'gross_price') return grossPrice;
-  return netExVat;
-}
-
-function getExtraDeductionBaseAmount({ baseAmountType, grossPrice, netExVat, netAfterCommission }) {
-  const type = String(baseAmountType || 'net_ex_vat').toLowerCase();
-  if (type === 'gross_price') return grossPrice;
-  if (type === 'net_after_commission') return netAfterCommission;
-  return netExVat;
-}
-
-function calculateExtraDeductions(extraDeductions = [], values = {}) {
-  let total = 0;
-  const breakdown = [];
-
-  for (const item of Array.isArray(extraDeductions) ? extraDeductions : []) {
-    if (!item || !normalizeBoolean(item.is_active, true)) continue;
-
-    const calculationType = String(item.calculation_type || 'percentage').toLowerCase();
-    const baseAmount = getExtraDeductionBaseAmount({
-      baseAmountType: item.base_amount_type,
-      grossPrice: values.grossPrice,
-      netExVat: values.netExVat,
-      netAfterCommission: values.netAfterCommission,
-    });
-
-    let amount = 0;
-
-    if (calculationType === 'fixed') {
-      amount = toNumber(item.fixed_amount);
-    } else {
-      amount = baseAmount * (toNumber(item.rate) / 100);
-    }
-
-    amount = Number(amount.toFixed(2));
-    total += amount;
-    breakdown.push({
-      ...item,
-      amount,
-    });
-  }
-
-  return {
-    total: Number(total.toFixed(2)),
-    breakdown,
-  };
-}
-
-function computeFinancials(price, options = {}) {
-  const grossPrice = toNumber(price, 0);
-  const cost = toNumber(options.cost, 0);
-  const vatRate = toNumber(options.vatRate, 20);
-  const commissionRate = toNumber(options.commissionRate, 0);
-  const commissionBase = options.commissionBase || 'net_ex_vat';
-  const fixedFee = toNumber(options.fixedFee, 0);
-
-  const shippingRule =
-    options.shippingRule ||
-    resolveShippingRule(options.shippingRules || [], {
-      marketplaceId: options.marketplaceId,
-      price: options.shippingPrice != null ? toNumber(options.shippingPrice) : grossPrice,
-      desi: options.desi != null ? toNumber(options.desi) : 0,
-    });
-
-  const shippingCost = toNumber(shippingRule?.shipping_cost, 0);
-  const vatMultiplier = 1 + vatRate / 100;
-  const netExVat = vatMultiplier > 0 ? grossPrice / vatMultiplier : grossPrice;
-
-  const commissionBaseAmount = getCommissionBaseAmount({
-    grossPrice,
-    netExVat,
-    commissionBase,
-  });
-
-  const commissionAmount = commissionBaseAmount * (commissionRate / 100);
-  const netAfterCommission = netExVat - commissionAmount;
-
-  const extraDeductionResult = calculateExtraDeductions(options.extraDeductions || [], {
-    grossPrice,
-    netExVat,
-    netAfterCommission,
-  });
-
-  const profit = netExVat - commissionAmount - fixedFee - shippingCost - extraDeductionResult.total - cost;
-  const marginRate = grossPrice > 0 ? (profit / grossPrice) * 100 : 0;
-
-  return {
-    grossPrice: Number(grossPrice.toFixed(2)),
-    netExVat: Number(netExVat.toFixed(2)),
-    commissionAmount: Number(commissionAmount.toFixed(2)),
-    shippingCost: Number(shippingCost.toFixed(2)),
-    extraDeductionsTotal: Number(extraDeductionResult.total.toFixed(2)),
-    extraDeductionBreakdown: extraDeductionResult.breakdown,
-    fixedFee: Number(fixedFee.toFixed(2)),
-    profit: Number(profit.toFixed(2)),
-    marginRate: Number(marginRate.toFixed(2)),
-    shippingRule,
-  };
-}
-
-function findMinimumPriceForMargin(targetMarginRate, options = {}) {
-  const target = toNumber(targetMarginRate, 0);
-  let low = 0;
-  let high = Math.max(
-    100,
-    toNumber(options.cost) * 3,
-    toNumber(options.currentPrice) * 2,
-    toNumber(options.brandMinPrice) * 2,
-    toNumber(options.competitorPrice) * 2
-  );
-
-  let probe = computeFinancials(high, options);
-  let guard = 0;
-
-  while (probe.marginRate < target && guard < 30) {
-    high *= 2;
-    probe = computeFinancials(high, options);
-    guard += 1;
-  }
-
-  for (let i = 0; i < 40; i += 1) {
-    const mid = (low + high) / 2;
-    const result = computeFinancials(mid, options);
-    if (result.marginRate >= target) {
-      high = mid;
-    } else {
-      low = mid;
-    }
-  }
-
-  return Number(high.toFixed(2));
-}
-
-function formatCurrency(value) {
-  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
-    return '—';
-  }
-
-  return new Intl.NumberFormat('tr-TR', {
-    style: 'currency',
-    currency: 'TRY',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(value));
-}
-
-function formatPercent(value) {
-  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
-    return '—';
-  }
-  return `%${Number(value).toFixed(2)}`;
-}
-
-function describeMarketplaceRule(rule) {
-  if (!rule) return 'Eşleşmedi';
-  return `#${rule.id} • ${rule.marketplace_name || 'Genel'} • ${getScopeLabel(rule.scope_type)}`;
-}
-
-function describeShippingRule(rule) {
-  if (!rule) return 'Eşleşmedi';
-  if (String(rule.scope_type || '').toLowerCase() === 'manual') {
-    return `Elle girilen kargo • ${formatCurrency(rule.shipping_cost)}`;
-  }
-
-  const marketplaceLabel = rule.marketplace_name || 'Genel';
-  const minPrice = rule.min_price ?? 0;
-  const maxPrice = rule.max_price ?? '∞';
-  const minDesi = rule.min_desi ?? 0;
-  const maxDesi = rule.max_desi ?? '∞';
-
-  return `#${rule.id} • ${marketplaceLabel} • ${minPrice}-${maxPrice} TL • ${minDesi}-${maxDesi} desi`;
-}
-
-function resolveBaseMarketplaceRule(rules = [], marketplaceId) {
-  return resolveScopedRule(
-    rules.filter((rule) => {
-      const scope = String(rule?.scope_type || 'general').toLowerCase();
-      return scope === 'general' || scope === 'marketplace';
-    }),
-    {
-      marketplaceId,
-      categoryId: '',
-      productId: '',
-    }
-  );
 }
 
 function buildSimulatorDefaults({
@@ -606,200 +382,24 @@ function buildSimulatorDefaults({
   };
 }
 
-function buildSimulationResult({
-  simulatorForm,
-  products,
-  marketplaces,
-  categories,
-  marketplaceRules,
-  shippingRules,
-  profitTargets,
-  extraDeductions,
-}) {
-  const product = (products || []).find((item) => String(item.id) === String(simulatorForm.product_id));
-  if (!product) {
-    throw new Error('Ürün bulunamadı');
+function formatCurrency(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+    return '—';
   }
 
-  const marketplace = (marketplaces || []).find(
-    (item) => String(item.id) === String(simulatorForm.marketplace_id)
-  );
+  return new Intl.NumberFormat('tr-TR', {
+    style: 'currency',
+    currency: 'TRY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}
 
-  const category = (categories || []).find((item) => String(item.id) === String(product.category_id));
-
-  const context = {
-    marketplaceId: simulatorForm.marketplace_id,
-    categoryId: product.category_id,
-    productId: product.id,
-  };
-
-  const appliedMarketplaceRule = resolveScopedRule(marketplaceRules, context);
-  const baseMarketplaceRule = resolveBaseMarketplaceRule(marketplaceRules, simulatorForm.marketplace_id);
-  const appliedProfitTarget = resolveScopedRule(profitTargets, context);
-
-  const autoShippingRule = resolveShippingRule(shippingRules, {
-    marketplaceId: simulatorForm.marketplace_id,
-    price: toNumber(simulatorForm.current_price),
-    desi: toNumber(simulatorForm.desi),
-  });
-
-  const manualShippingRule =
-    simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== ''
-      ? {
-          id: null,
-          scope_type: 'manual',
-          shipping_cost: toNumber(simulatorForm.shipping_cost),
-          marketplace_name: marketplace?.marketplace_name || 'Seçilen Pazaryeri',
-        }
-      : null;
-
-  const deductionList = getExtraDeductionsForRule(extraDeductions, appliedMarketplaceRule?.id);
-
-  const commissionBase = appliedMarketplaceRule?.commission_base || 'net_ex_vat';
-  const marketplaceDiscountRate = clamp(toNumber(simulatorForm.marketplace_discount_rate), 0, 95);
-  const marketplaceDiscountFunded = normalizeBoolean(simulatorForm.marketplace_discount_funded, false);
-  const discountRateDecimal = marketplaceDiscountRate / 100;
-
-  const brandMinPrice = toNumber(simulatorForm.brand_min_price, 0);
-  const cost = toNumber(simulatorForm.cost, 0);
-  const currentPrice = toNumber(simulatorForm.current_price, 0);
-  const desi = toNumber(simulatorForm.desi, 0);
-  const competitorPrice =
-    simulatorForm.competitor_price === '' ? null : toNumber(simulatorForm.competitor_price, 0);
-  const minMarginRate = toNumber(simulatorForm.min_margin_rate, 10);
-  const targetMarginRate = toNumber(simulatorForm.target_margin_rate, 18);
-  const roundingEnding = toNumber(simulatorForm.rounding_ending, 0.9);
-
-  const commonOptions = {
-    cost,
-    vatRate: toNumber(simulatorForm.vat_rate, 20),
-    commissionRate: toNumber(simulatorForm.commission_rate, 0),
-    commissionBase,
-    fixedFee: toNumber(simulatorForm.fixed_fee, 0),
-    shippingRule: manualShippingRule,
-    shippingRules,
-    extraDeductions: deductionList,
-    marketplaceId: simulatorForm.marketplace_id,
-    currentPrice,
-    competitorPrice,
-    brandMinPrice,
-    desi,
-  };
-
-  const currentFinancials = computeFinancials(currentPrice, commonOptions);
-  const profitFloor = findMinimumPriceForMargin(minMarginRate, commonOptions);
-  const targetPrice = findMinimumPriceForMargin(targetMarginRate, commonOptions);
-  const protectedFloor = Math.max(profitFloor, brandMinPrice);
-
-  const discountAdjustedProtectedFloor =
-    marketplaceDiscountFunded && discountRateDecimal > 0
-      ? protectedFloor / (1 - discountRateDecimal)
-      : protectedFloor;
-
-  const rawRecommendedPrice = Math.max(targetPrice, discountAdjustedProtectedFloor);
-  const recommendedPrice = roundUpToEnding(rawRecommendedPrice, roundingEnding);
-
-  const projectedFinancials = computeFinancials(recommendedPrice, commonOptions);
-
-  const customerSeenPrice =
-    marketplaceDiscountFunded && discountRateDecimal > 0
-      ? Number((recommendedPrice * (1 - discountRateDecimal)).toFixed(2))
-      : recommendedPrice;
-
-  let recommendationType = 'keep';
-  if (!currentPrice) recommendationType = 'set';
-  else if (recommendedPrice > currentPrice + 0.01) recommendationType = 'increase';
-  else if (recommendedPrice < currentPrice - 0.01) recommendationType = 'decrease';
-
-  const reasons = [];
-  if (baseMarketplaceRule) {
-    reasons.push(`Genel baz kural: ${describeMarketplaceRule(baseMarketplaceRule)}`);
+function formatPercent(value) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+    return '—';
   }
-  if (appliedMarketplaceRule) {
-    reasons.push(`Uygulanan kural: ${describeMarketplaceRule(appliedMarketplaceRule)}`);
-  }
-  if (appliedProfitTarget) {
-    reasons.push(
-      `Kâr hedefi: min ${formatPercent(
-        appliedProfitTarget.min_margin_rate ?? appliedProfitTarget.min_profit_margin ?? minMarginRate
-      )} / hedef ${formatPercent(
-        appliedProfitTarget.target_margin_rate ?? appliedProfitTarget.target_profit_margin ?? targetMarginRate
-      )}`
-    );
-  }
-  if (brandMinPrice > 0) {
-    reasons.push(`Firma minimum fiyat korundu: ${formatCurrency(brandMinPrice)}`);
-  }
-  if (marketplaceDiscountFunded && marketplaceDiscountRate > 0) {
-    reasons.push(`Pazaryeri indirimi nedeniyle liste fiyatı yukarı taşındı: ${formatPercent(marketplaceDiscountRate)}`);
-  }
-  if (manualShippingRule) {
-    reasons.push(`Kargo elle override edildi: ${formatCurrency(manualShippingRule.shipping_cost)}`);
-  } else if (projectedFinancials.shippingRule) {
-    reasons.push(`Kargo eşleşmesi: ${describeShippingRule(projectedFinancials.shippingRule)}`);
-  }
-
-  const alerts = [];
-  if (currentPrice > 0 && currentPrice < protectedFloor) {
-    alerts.push({
-      type: 'protected_floor_breach',
-      severity: 'high',
-      title: 'Korunan taban altında fiyat',
-      message: `Mevcut fiyat ${formatCurrency(currentPrice)} protected floor ${formatCurrency(
-        protectedFloor
-      )} altında kalıyor.`,
-    });
-  }
-
-  if (competitorPrice !== null && recommendedPrice > competitorPrice * 1.15) {
-    alerts.push({
-      type: 'competitor_gap',
-      severity: 'medium',
-      title: 'Rakip fiyat farkı yüksek',
-      message: 'Önerilen fiyat rakip fiyata göre belirgin şekilde yukarıda kaldı.',
-    });
-  }
-
-  if (marketplaceDiscountFunded && customerSeenPrice < protectedFloor) {
-    alerts.push({
-      type: 'discount_floor_warning',
-      severity: 'high',
-      title: 'İndirim sonrası koruma kontrolü',
-      message: 'İndirimli müşteri fiyatı protected floor seviyesine çok yaklaştı.',
-    });
-  }
-
-  let riskLevel = 'low';
-  if (alerts.some((item) => item.severity === 'high')) riskLevel = 'high';
-  else if (alerts.length > 0) riskLevel = 'medium';
-
-  return {
-    product,
-    marketplace,
-    category,
-    matched: {
-      baseMarketplaceRule,
-      appliedMarketplaceRule,
-      profitTarget: appliedProfitTarget,
-      shippingRule: projectedFinancials.shippingRule || autoShippingRule || manualShippingRule,
-      extraDeductions: deductionList,
-    },
-    currentFinancials,
-    projectedFinancials,
-    floors: {
-      profitFloor: Number(profitFloor.toFixed(2)),
-      targetPrice: Number(targetPrice.toFixed(2)),
-      brandMinPrice: Number(brandMinPrice.toFixed(2)),
-      protectedFloor: Number(protectedFloor.toFixed(2)),
-      discountAdjustedProtectedFloor: Number(discountAdjustedProtectedFloor.toFixed(2)),
-    },
-    recommendationType,
-    recommendedPrice: Number(recommendedPrice.toFixed(2)),
-    customerSeenPrice: Number(customerSeenPrice.toFixed(2)),
-    reasons,
-    alerts,
-    riskLevel,
-  };
+  return `%${Number(value).toFixed(2)}`;
 }
 
 function Field({ label, children, hint }) {
@@ -875,8 +475,8 @@ function RulesSimulatorModal({
           <div>
             <h2 style={styles.modalTitle}>Kurallar Simülatörü</h2>
             <p style={styles.modalSubtitle}>
-              Ürün bazlı kural etkisini test et. Varsayılanlar otomatik gelir, alanlar istersen
-              elle değiştirilebilir.
+              Ürün bazlı kural çıktısını test et. Varsayılanlar otomatik gelir, istersen alanları
+              değiştirip tekrar hesaplayabilirsin.
             </p>
           </div>
 
@@ -1163,32 +763,24 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Genel / Fallback Kural</div>
                   <div style={styles.simulatorInfoValue}>
-                    {result?.matched?.baseMarketplaceRule
-                      ? describeMarketplaceRule(result.matched.baseMarketplaceRule)
-                      : 'Henüz hesaplanmadı'}
+                    {result?.matchedRules?.marketplaceGeneralRule?.name || 'Henüz hesaplanmadı'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Uygulanan Pazaryeri Kuralı</div>
                   <div style={styles.simulatorInfoValue}>
-                    {result?.matched?.appliedMarketplaceRule
-                      ? describeMarketplaceRule(result.matched.appliedMarketplaceRule)
-                      : 'Henüz hesaplanmadı'}
+                    {result?.matchedRules?.marketplaceSpecialRule?.name || 'Henüz hesaplanmadı'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Uygulanan Kâr Hedefi</div>
                   <div style={styles.simulatorInfoValue}>
-                    {result?.matched?.profitTarget
-                      ? `#${result.matched.profitTarget.id} • min ${formatPercent(
-                          result.matched.profitTarget.min_margin_rate ??
-                            result.matched.profitTarget.min_profit_margin
-                        )} / hedef ${formatPercent(
-                          result.matched.profitTarget.target_margin_rate ??
-                            result.matched.profitTarget.target_profit_margin
-                        )}`
+                    {result?.matchedRules?.profitRule
+                      ? `#${result.matchedRules.profitRule.id} • min ${formatPercent(
+                          result.matchedRules.profitRule.minMarginRate
+                        )} / hedef ${formatPercent(result.matchedRules.profitRule.targetMarginRate)}`
                       : 'Henüz hesaplanmadı'}
                   </div>
                 </div>
@@ -1196,20 +788,18 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Uygulanan Kargo Kuralı</div>
                   <div style={styles.simulatorInfoValue}>
-                    {result?.matched?.shippingRule
-                      ? describeShippingRule(result.matched.shippingRule)
-                      : 'Henüz hesaplanmadı'}
+                    {result?.matchedRules?.shippingRule?.name || 'Henüz hesaplanmadı'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Ek Kesintiler</div>
                   <div style={styles.simulatorInfoText}>
-                    {result?.matched?.extraDeductions?.length
-                      ? result.matched.extraDeductions
+                    {result?.matchedRules?.extraDeductions?.length
+                      ? result.matchedRules.extraDeductions
                           .map((item) =>
-                            item.calculation_type === 'fixed'
-                              ? `${item.name}: ${formatCurrency(item.fixed_amount)}`
+                            item.type === 'fixed'
+                              ? `${item.name}: ${formatCurrency(item.fixedAmount)}`
                               : `${item.name}: ${formatPercent(item.rate)}`
                           )
                           .join(' • ')
@@ -1220,8 +810,8 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorInfoCard}>
                   <div style={styles.simulatorInfoLabel}>Açıklama</div>
                   <div style={styles.simulatorInfoText}>
-                    {result?.reasons?.length
-                      ? result.reasons.join(' | ')
+                    {result?.decision?.reasons?.length
+                      ? result.decision.reasons.join(' | ')
                       : 'Pazaryeri ve ürün seçildikten sonra kural özeti burada gösterilecek.'}
                   </div>
                 </div>
@@ -1240,28 +830,28 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Önerilen Liste Fiyatı</div>
                   <div style={styles.simulatorBigValue}>
-                    {result ? formatCurrency(result.recommendedPrice) : '—'}
+                    {result ? formatCurrency(result.decision?.recommendedPrice) : '—'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Müşterinin Gördüğü Fiyat</div>
                   <div style={styles.simulatorBigValue}>
-                    {result ? formatCurrency(result.customerSeenPrice) : '—'}
+                    {result ? formatCurrency(result.calculation?.customerSeenPrice) : '—'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Protected Floor</div>
                   <div style={styles.simulatorBigValue}>
-                    {result ? formatCurrency(result.floors.protectedFloor) : '—'}
+                    {result ? formatCurrency(result.floors?.protectedFloor) : '—'}
                   </div>
                 </div>
 
                 <div style={styles.simulatorSummaryCard}>
                   <div style={styles.simulatorInfoLabel}>Net Kâr Marjı</div>
                   <div style={styles.simulatorBigValue}>
-                    {result ? formatPercent(result.projectedFinancials.marginRate) : '—'}
+                    {result ? formatPercent(result.calculation?.marginRate) : '—'}
                   </div>
                 </div>
               </div>
@@ -1273,13 +863,13 @@ function RulesSimulatorModal({
                     label="Ürün"
                     value={
                       result?.product
-                        ? `${result.product.stock_code || '—'} • ${result.product.name || result.product.product_name || 'Ürün'}`
+                        ? `${result.product.stockCode || '—'} • ${result.product.name || 'Ürün'}`
                         : '—'
                     }
                   />
                   <SimulatorValueRow
                     label="Kategori"
-                    value={result?.category?.name || result?.product?.category_name || '—'}
+                    value={result?.product?.categoryName || '—'}
                   />
                   <SimulatorValueRow
                     label="Pazaryeri"
@@ -1287,7 +877,7 @@ function RulesSimulatorModal({
                   />
                   <SimulatorValueRow
                     label="Risk Seviyesi"
-                    value={result?.riskLevel ? result.riskLevel.toUpperCase() : '—'}
+                    value={result?.decision?.riskLevel ? result.decision.riskLevel.toUpperCase() : '—'}
                     strong
                   />
                 </div>
@@ -1298,19 +888,19 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorBreakdownBody}>
                   <SimulatorValueRow
                     label="Min Marj Tabanı"
-                    value={result ? formatCurrency(result.floors.profitFloor) : '—'}
+                    value={result ? formatCurrency(result.floors?.profitFloor) : '—'}
                   />
                   <SimulatorValueRow
                     label="Hedef Marj Fiyatı"
-                    value={result ? formatCurrency(result.floors.targetPrice) : '—'}
+                    value={result ? formatCurrency(result.floors?.targetPrice) : '—'}
                   />
                   <SimulatorValueRow
                     label="Firma Minimum Fiyatı"
-                    value={result ? formatCurrency(result.floors.brandMinPrice) : '—'}
+                    value={result ? formatCurrency(result.floors?.brandMinFloor) : '—'}
                   />
                   <SimulatorValueRow
                     label="İndirim Sonrası Korunan Taban"
-                    value={result ? formatCurrency(result.floors.discountAdjustedProtectedFloor) : '—'}
+                    value={result ? formatCurrency(result.floors?.discountAdjustedProtectedFloor) : '—'}
                     strong
                   />
                 </div>
@@ -1321,31 +911,31 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorBreakdownBody}>
                   <SimulatorValueRow
                     label="Brüt Satış"
-                    value={result ? formatCurrency(result.projectedFinancials.grossPrice) : '—'}
+                    value={result ? formatCurrency(result.calculation?.grossPrice) : '—'}
                   />
                   <SimulatorValueRow
                     label="KDV Hariç Net"
-                    value={result ? formatCurrency(result.projectedFinancials.netExVat) : '—'}
+                    value={result ? formatCurrency(result.calculation?.netExVat) : '—'}
                   />
                   <SimulatorValueRow
                     label="Komisyon"
-                    value={result ? formatCurrency(result.projectedFinancials.commissionAmount) : '—'}
+                    value={result ? formatCurrency(result.calculation?.commissionAmount) : '—'}
                   />
                   <SimulatorValueRow
                     label="Kargo"
-                    value={result ? formatCurrency(result.projectedFinancials.shippingCost) : '—'}
+                    value={result ? formatCurrency(result.calculation?.shippingCost) : '—'}
                   />
                   <SimulatorValueRow
                     label="Platform Hizmet Bedeli"
-                    value={result ? formatCurrency(result.projectedFinancials.fixedFee) : '—'}
+                    value={result ? formatCurrency(result.calculation?.platformServiceFee) : '—'}
                   />
                   <SimulatorValueRow
                     label="Ek Kesintiler"
-                    value={result ? formatCurrency(result.projectedFinancials.extraDeductionsTotal) : '—'}
+                    value={result ? formatCurrency(result.calculation?.extraDeductionsTotal) : '—'}
                   />
                   <SimulatorValueRow
                     label="Net Kâr"
-                    value={result ? formatCurrency(result.projectedFinancials.profit) : '—'}
+                    value={result ? formatCurrency(result.calculation?.profit) : '—'}
                     strong
                   />
                 </div>
@@ -1354,8 +944,8 @@ function RulesSimulatorModal({
               <div style={styles.simulatorWarningCard}>
                 <div style={styles.simulatorWarningTitle}>Uyarılar</div>
                 <div style={styles.simulatorWarningText}>
-                  {result?.alerts?.length
-                    ? result.alerts.map((item) => `${item.title}: ${item.message}`).join(' | ')
+                  {result?.decision?.alerts?.length
+                    ? result.decision.alerts.map((item) => `${item.title}: ${item.message}`).join(' | ')
                     : 'Şimdilik uyarı yok.'}
                 </div>
               </div>
@@ -1420,7 +1010,7 @@ export default function RulesPage() {
   const marketplaceRuleOptions = useMemo(() => {
     return marketplaceRules.map((rule) => ({
       id: rule.id,
-      label: `#${rule.id} | ${rule.marketplace_name || 'General'} | ${rule.scope_type || 'general'}`,
+      label: `#${rule.id} | ${rule.marketplace_name || 'General'} | ${getScopeLabel(rule.scope_type)}`,
     }));
   }, [marketplaceRules]);
 
@@ -1496,9 +1086,7 @@ export default function RulesPage() {
   }, [user, token, fetchAll]);
 
   const applySimulatorDefaults = useCallback(() => {
-    if (!simulatorForm.marketplace_id || !simulatorForm.product_id) {
-      return;
-    }
+    if (!simulatorForm.marketplace_id || !simulatorForm.product_id) return;
 
     const defaults = buildSimulatorDefaults({
       marketplaceId: simulatorForm.marketplace_id,
@@ -1803,22 +1391,69 @@ export default function RulesPage() {
   }
 
   async function handleSimulatorCalculate() {
+    if (!simulatorForm.marketplace_id) {
+      setError('Simülasyon için pazaryeri seçmelisin');
+      return;
+    }
+
+    if (!simulatorForm.product_id) {
+      setError('Simülasyon için ürün seçmelisin');
+      return;
+    }
+
     setSimulatorCalculating(true);
     setError('');
 
     try {
-      const result = buildSimulationResult({
-        simulatorForm,
-        products,
-        marketplaces,
-        categories,
-        marketplaceRules,
-        shippingRules,
-        profitTargets,
-        extraDeductions,
+      const overrides = {
+        cost: simulatorForm.cost === '' ? undefined : toNumber(simulatorForm.cost),
+        currentPrice: simulatorForm.current_price === '' ? undefined : toNumber(simulatorForm.current_price),
+        desi: simulatorForm.desi === '' ? undefined : toNumber(simulatorForm.desi),
+        competitorPrice:
+          simulatorForm.competitor_price === '' ? undefined : toNumber(simulatorForm.competitor_price),
+        brandMinPrice:
+          simulatorForm.brand_min_price === '' ? undefined : toNumber(simulatorForm.brand_min_price),
+        commissionRate:
+          simulatorForm.commission_rate === '' ? undefined : toNumber(simulatorForm.commission_rate),
+        vatRate: simulatorForm.vat_rate === '' ? undefined : toNumber(simulatorForm.vat_rate),
+        fixedFee: simulatorForm.fixed_fee === '' ? undefined : toNumber(simulatorForm.fixed_fee),
+        marketplaceDiscountRate:
+          simulatorForm.marketplace_discount_rate === ''
+            ? undefined
+            : toNumber(simulatorForm.marketplace_discount_rate),
+        marketplaceDiscountFunded: Boolean(simulatorForm.marketplace_discount_funded),
+        minMarginRate:
+          simulatorForm.min_margin_rate === '' ? undefined : toNumber(simulatorForm.min_margin_rate),
+        targetMarginRate:
+          simulatorForm.target_margin_rate === '' ? undefined : toNumber(simulatorForm.target_margin_rate),
+        roundingEnding:
+          simulatorForm.rounding_ending === '' ? undefined : toNumber(simulatorForm.rounding_ending),
+      };
+
+      if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
+        overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
+      }
+
+      const response = await fetch(`${API_URL}/api/rules/simulate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeader(),
+        },
+        body: JSON.stringify({
+          productId: Number(simulatorForm.product_id),
+          marketplaceId: Number(simulatorForm.marketplace_id),
+          overrides,
+        }),
       });
 
-      setSimulatorResult(result);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Simülasyon başarısız');
+      }
+
+      setSimulatorResult(data);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -1845,7 +1480,7 @@ export default function RulesPage() {
       <div style={styles.page}>
         <div style={styles.pageHeader}>
           <div>
-            <h1 style={styles.pageTitle}>⚙️ Kurallar Merkezi</h1>
+            <h1 style={styles.pageTitle}>Kurallar Merkezi</h1>
             <p style={styles.pageSubtitle}>
               Genel fallback, pazaryeri bazlı istisnalar, kargo baremleri, kâr hedefleri ve ek
               kesintiler bu ekrandan yönetilir.
@@ -2212,7 +1847,7 @@ export default function RulesPage() {
                       <tbody>
                         {marketplaceRules.map((rule) => (
                           <tr key={rule.id}>
-                            <td>{rule.scope_type || 'general'}</td>
+                            <td>{getScopeLabel(rule.scope_type)}</td>
                             <td>{rule.marketplace_name || 'General'}</td>
                             <td>{rule.category_name || '—'}</td>
                             <td>
@@ -2448,9 +2083,9 @@ export default function RulesPage() {
                         {shippingRules.map((rule) => (
                           <tr key={rule.id}>
                             <td>{rule.marketplace_name || 'Genel'}</td>
-                            <td>{rule.min_price ?? 0}</td>
+                            <td>{rule.min_price ?? '—'}</td>
                             <td>{rule.max_price ?? '—'}</td>
-                            <td>{rule.min_desi ?? 0}</td>
+                            <td>{rule.min_desi ?? '—'}</td>
                             <td>{rule.max_desi ?? '—'}</td>
                             <td>{rule.shipping_cost ?? 0}</td>
                             <td>{formatBool(rule.is_active)}</td>
@@ -2661,7 +2296,7 @@ export default function RulesPage() {
                       <tbody>
                         {profitTargets.map((rule) => (
                           <tr key={rule.id}>
-                            <td>{rule.scope_type || 'general'}</td>
+                            <td>{getScopeLabel(rule.scope_type)}</td>
                             <td>{rule.marketplace_name || 'General'}</td>
                             <td>{rule.category_name || '—'}</td>
                             <td>
@@ -2959,184 +2594,222 @@ export default function RulesPage() {
 
 const styles = {
   page: {
-    padding: '24px',
+    padding: '28px 32px',
     maxWidth: 1600,
     margin: '0 auto',
+    fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
+    background: '#f0f4f8',
+    minHeight: '100vh',
   },
   pageHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 16,
     alignItems: 'flex-start',
-    marginBottom: 20,
+    marginBottom: 24,
     flexWrap: 'wrap',
+    background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
+    borderRadius: 20,
+    padding: '24px 28px',
+    boxShadow: '0 8px 32px rgba(37,99,235,0.18)',
   },
   pageTitle: {
     margin: 0,
-    fontSize: 28,
-    fontWeight: 700,
-    color: '#0f172a',
+    fontSize: 26,
+    fontWeight: 800,
+    color: '#fff',
+    letterSpacing: '-0.5px',
   },
   pageSubtitle: {
-    margin: '8px 0 0',
-    color: '#475569',
+    margin: '6px 0 0',
+    color: 'rgba(255,255,255,0.75)',
     lineHeight: 1.5,
+    fontSize: 14,
   },
   toolbar: {
     display: 'flex',
-    gap: 10,
+    gap: 8,
     flexWrap: 'wrap',
+    alignItems: 'center',
   },
   primaryButton: {
     height: 40,
-    padding: '0 16px',
+    padding: '0 18px',
     borderRadius: 10,
     border: 'none',
-    background: '#2563eb',
-    color: '#fff',
-    fontWeight: 600,
+    background: '#fff',
+    color: '#1e3a5f',
+    fontWeight: 700,
     cursor: 'pointer',
+    fontSize: 13,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+    transition: 'transform 0.1s',
   },
   secondaryButton: {
     height: 40,
     padding: '0 16px',
     borderRadius: 10,
-    border: '1px solid #cbd5e1',
-    background: '#fff',
-    color: '#0f172a',
+    border: '1px solid rgba(255,255,255,0.35)',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#fff',
     fontWeight: 600,
     cursor: 'pointer',
+    fontSize: 13,
+    backdropFilter: 'blur(4px)',
   },
   errorBox: {
-    padding: 12,
-    borderRadius: 10,
+    padding: '12px 16px',
+    borderRadius: 12,
     background: '#fef2f2',
     border: '1px solid #fecaca',
     color: '#b91c1c',
     marginBottom: 16,
+    fontWeight: 500,
+    fontSize: 14,
   },
   successBox: {
-    padding: 12,
-    borderRadius: 10,
+    padding: '12px 16px',
+    borderRadius: 12,
     background: '#f0fdf4',
     border: '1px solid #bbf7d0',
     color: '#166534',
     marginBottom: 16,
+    fontWeight: 500,
+    fontSize: 14,
   },
   tabs: {
     display: 'flex',
-    gap: 10,
+    gap: 8,
     flexWrap: 'wrap',
-    marginBottom: 18,
+    marginBottom: 20,
+    background: '#fff',
+    padding: '8px',
+    borderRadius: 14,
+    boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
   },
   tabButton: {
-    height: 40,
-    padding: '0 16px',
-    borderRadius: 999,
-    border: '1px solid #cbd5e1',
-    background: '#fff',
-    color: '#334155',
+    height: 38,
+    padding: '0 18px',
+    borderRadius: 10,
+    border: 'none',
+    background: 'transparent',
+    color: '#64748b',
     cursor: 'pointer',
     fontWeight: 600,
+    fontSize: 13,
+    transition: 'all 0.15s',
   },
   tabButtonActive: {
-    background: '#0f172a',
+    background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
     color: '#fff',
-    borderColor: '#0f172a',
+    boxShadow: '0 4px 12px rgba(37,99,235,0.25)',
   },
   centered: {
     padding: 40,
     textAlign: 'center',
-    color: '#475569',
+    color: '#64748b',
+    fontSize: 15,
   },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(360px, 480px) minmax(0, 1fr)',
+    gridTemplateColumns: 'minmax(360px, 460px) minmax(0, 1fr)',
     gap: 20,
     alignItems: 'start',
   },
   card: {
     background: '#fff',
-    border: '1px solid #e2e8f0',
-    borderRadius: 16,
-    padding: 18,
-    boxShadow: '0 8px 30px rgba(15, 23, 42, 0.04)',
-    position: 'relative',
+    border: '1px solid #e8eef4',
+    borderRadius: 18,
+    padding: 20,
+    boxShadow: '0 4px 20px rgba(15,23,42,0.05)',
   },
   cardHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 18,
+    paddingBottom: 14,
+    borderBottom: '2px solid #f1f5f9',
   },
   cardTitle: {
     margin: 0,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 700,
-    color: '#0f172a',
+    color: '#1e3a5f',
+    letterSpacing: '-0.3px',
   },
   formGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: 14,
+    gap: 12,
   },
   field: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
+    gap: 5,
   },
   fieldLabel: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#334155',
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#475569',
+    letterSpacing: '0.3px',
+    textTransform: 'uppercase',
   },
   fieldHint: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 11,
+    color: '#94a3b8',
+    marginTop: 2,
   },
   input: {
-    height: 40,
-    borderRadius: 10,
-    border: '1px solid #cbd5e1',
+    height: 38,
+    borderRadius: 9,
+    border: '1.5px solid #e2e8f0',
     padding: '0 12px',
     outline: 'none',
-    background: '#fff',
+    background: '#f8fafc',
     color: '#0f172a',
+    fontSize: 13,
+    transition: 'border-color 0.15s',
   },
   textarea: {
-    minHeight: 86,
-    borderRadius: 10,
-    border: '1px solid #cbd5e1',
-    padding: 12,
+    minHeight: 80,
+    borderRadius: 9,
+    border: '1.5px solid #e2e8f0',
+    padding: '10px 12px',
     outline: 'none',
     resize: 'vertical',
-    background: '#fff',
+    background: '#f8fafc',
     color: '#0f172a',
+    fontSize: 13,
   },
   formActions: {
     display: 'flex',
     gap: 10,
     gridColumn: '1 / -1',
-    marginTop: 4,
+    marginTop: 6,
+    paddingTop: 14,
+    borderTop: '1px solid #f1f5f9',
   },
   tableWrap: {
     overflowX: 'auto',
+    borderRadius: 12,
+    border: '1px solid #e8eef4',
   },
   table: {
     width: '100%',
     borderCollapse: 'collapse',
-    fontSize: 14,
+    fontSize: 13,
   },
   emptyCell: {
     textAlign: 'center',
-    color: '#64748b',
-    padding: 20,
+    color: '#94a3b8',
+    padding: 24,
+    fontStyle: 'italic',
   },
   rowActions: {
     display: 'flex',
     gap: 10,
-    flexWrap: 'wrap',
   },
   linkButton: {
     border: 'none',
@@ -3144,7 +2817,8 @@ const styles = {
     color: '#2563eb',
     cursor: 'pointer',
     padding: 0,
-    fontWeight: 600,
+    fontWeight: 700,
+    fontSize: 13,
   },
   linkDangerButton: {
     border: 'none',
@@ -3152,7 +2826,8 @@ const styles = {
     color: '#dc2626',
     cursor: 'pointer',
     padding: 0,
-    fontWeight: 600,
+    fontWeight: 700,
+    fontSize: 13,
   },
   infoWrap: {
     position: 'relative',
@@ -3163,68 +2838,75 @@ const styles = {
     width: 28,
     height: 28,
     borderRadius: '50%',
-    border: '1px solid #cbd5e1',
-    background: '#fff',
-    color: '#0f172a',
+    border: '1.5px solid #cbd5e1',
+    background: '#f8fafc',
+    color: '#475569',
     fontWeight: 700,
     cursor: 'pointer',
+    fontSize: 13,
   },
   infoPopover: {
     position: 'absolute',
     top: 34,
     right: 0,
-    width: 320,
-    padding: 12,
-    borderRadius: 12,
-    border: '1px solid #cbd5e1',
+    width: 300,
+    padding: 14,
+    borderRadius: 14,
+    border: '1px solid #e2e8f0',
     background: '#fff',
     color: '#334155',
     fontSize: 13,
-    lineHeight: 1.5,
-    boxShadow: '0 12px 32px rgba(15, 23, 42, 0.12)',
+    lineHeight: 1.6,
+    boxShadow: '0 16px 40px rgba(15,23,42,0.12)',
     zIndex: 20,
   },
+  // Modal
   modalOverlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(15, 23, 42, 0.45)',
+    background: 'rgba(15,23,42,0.55)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
     zIndex: 1000,
+    backdropFilter: 'blur(3px)',
   },
   modalCard: {
     width: '100%',
     maxWidth: 1520,
     maxHeight: '92vh',
     overflow: 'hidden',
-    background: '#fff',
-    borderRadius: 20,
+    background: '#f0f4f8',
+    borderRadius: 24,
     border: '1px solid #e2e8f0',
-    boxShadow: '0 30px 70px rgba(15, 23, 42, 0.25)',
+    boxShadow: '0 40px 80px rgba(15,23,42,0.28)',
     display: 'flex',
     flexDirection: 'column',
   },
   modalHeader: {
-    padding: '20px 24px',
+    padding: '20px 28px',
     borderBottom: '1px solid #e2e8f0',
     display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 16,
     flexWrap: 'wrap',
+    background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%)',
+    borderRadius: '24px 24px 0 0',
   },
   modalTitle: {
     margin: 0,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 800,
-    color: '#0f172a',
+    color: '#fff',
+    letterSpacing: '-0.5px',
   },
   modalSubtitle: {
     margin: '6px 0 0',
-    color: '#64748b',
+    color: 'rgba(255,255,255,0.75)',
     lineHeight: 1.5,
+    fontSize: 13,
   },
   modalBody: {
     padding: 24,
@@ -3236,121 +2918,129 @@ const styles = {
     gap: 18,
     alignItems: 'start',
   },
+  // Simulator
   simulatorSection: {
-    border: '1px solid #e2e8f0',
+    border: '1px solid #e8eef4',
     borderRadius: 18,
     padding: 18,
     background: '#fff',
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)',
+    boxShadow: '0 4px 16px rgba(15,23,42,0.04)',
   },
   simulatorSectionHeader: {
     marginBottom: 16,
+    paddingBottom: 12,
+    borderBottom: '2px solid #f1f5f9',
   },
   simulatorSectionTitle: {
     margin: 0,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 800,
-    color: '#0f172a',
+    color: '#1e3a5f',
+    letterSpacing: '-0.3px',
   },
   simulatorSectionText: {
-    margin: '6px 0 0',
-    fontSize: 13,
+    margin: '5px 0 0',
+    fontSize: 12,
     color: '#64748b',
     lineHeight: 1.5,
   },
   simulatorStack: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 10,
   },
   simulatorInfoCard: {
-    border: '1px solid #e2e8f0',
-    borderRadius: 14,
-    padding: 14,
+    border: '1px solid #e8eef4',
+    borderRadius: 12,
+    padding: 12,
     background: '#f8fafc',
   },
   simulatorInfoLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 800,
-    letterSpacing: 0.4,
+    letterSpacing: '0.5px',
     textTransform: 'uppercase',
     color: '#64748b',
   },
   simulatorInfoValue: {
-    marginTop: 8,
-    fontSize: 15,
+    marginTop: 6,
+    fontSize: 14,
     fontWeight: 700,
     color: '#0f172a',
   },
   simulatorInfoText: {
-    marginTop: 8,
-    fontSize: 14,
+    marginTop: 6,
+    fontSize: 13,
     color: '#334155',
     lineHeight: 1.6,
   },
   simulatorSummaryGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: 12,
+    gap: 10,
     marginBottom: 14,
   },
   simulatorSummaryCard: {
-    border: '1px solid #e2e8f0',
+    border: '1px solid #e8eef4',
     borderRadius: 14,
     padding: 14,
-    background: '#f8fafc',
+    background: 'linear-gradient(135deg, #f0f4f8 0%, #e8eef4 100%)',
   },
   simulatorBigValue: {
     marginTop: 8,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 800,
-    color: '#0f172a',
+    color: '#1e3a5f',
+    letterSpacing: '-0.5px',
   },
   simulatorBreakdownCard: {
-    border: '1px solid #e2e8f0',
+    border: '1px solid #e8eef4',
     borderRadius: 14,
     padding: 14,
     background: '#fff',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   simulatorBreakdownTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 800,
-    color: '#0f172a',
+    color: '#1e3a5f',
     marginBottom: 10,
+    paddingBottom: 8,
+    borderBottom: '1px solid #f1f5f9',
   },
   simulatorBreakdownBody: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
+    gap: 6,
   },
   simulatorValueRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: 12,
-    paddingBottom: 8,
-    borderBottom: '1px solid #e2e8f0',
-    fontSize: 14,
+    padding: '6px 0',
+    borderBottom: '1px solid #f1f5f9',
+    fontSize: 13,
     color: '#475569',
   },
   simulatorValueRowStrong: {
-    color: '#0f172a',
+    color: '#1e3a5f',
     fontWeight: 800,
+    fontSize: 14,
   },
   simulatorWarningCard: {
     border: '1px solid #fde68a',
     borderRadius: 14,
     padding: 14,
-    background: '#fffbeb',
+    background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
   },
   simulatorWarningTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 800,
     color: '#92400e',
     marginBottom: 8,
   },
   simulatorWarningText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#b45309',
     lineHeight: 1.6,
   },
@@ -3358,7 +3048,9 @@ const styles = {
     gridColumn: '1 / -1',
     display: 'flex',
     gap: 10,
-    marginTop: 4,
+    marginTop: 8,
+    paddingTop: 14,
+    borderTop: '1px solid #f1f5f9',
   },
 };
 
@@ -3368,19 +3060,38 @@ if (typeof window !== 'undefined') {
     const style = document.createElement('style');
     style.id = styleId;
     style.innerHTML = `
+      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+
       table th, table td {
-        border-bottom: 1px solid #e2e8f0;
-        padding: 10px 12px;
+        border-bottom: 1px solid #e8eef4;
+        padding: 10px 14px;
         text-align: left;
-        vertical-align: top;
+        vertical-align: middle;
         white-space: nowrap;
       }
       table thead th {
-        background: #f8fafc;
-        color: #334155;
+        background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%);
+        color: #fff;
         font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
         position: sticky;
         top: 0;
+      }
+      table tbody tr:hover {
+        background: #f8fafc;
+      }
+      table tbody tr:last-child td {
+        border-bottom: none;
+      }
+      input:focus, select:focus, textarea:focus {
+        border-color: #2563eb !important;
+        background: #fff !important;
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12) !important;
+      }
+      button:hover {
+        opacity: 0.88;
       }
       @media (max-width: 1200px) {
         .rules-grid-responsive {
