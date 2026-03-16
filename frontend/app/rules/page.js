@@ -102,11 +102,7 @@ function lookupLabel(options, value, fallback = '—') {
   return found?.label || fallback;
 }
 
-function Field({
-  label,
-  children,
-  hint,
-}) {
+function Field({ label, children, hint }) {
   return (
     <label style={styles.field}>
       <span style={styles.fieldLabel}>{label}</span>
@@ -144,6 +140,186 @@ function SectionCard({ title, children, right }) {
   );
 }
 
+function SimulatorValueRow({ label, value, strong = false }) {
+  return (
+    <div
+      style={{
+        ...styles.simulatorValueRow,
+        ...(strong ? styles.simulatorValueRowStrong : {}),
+      }}
+    >
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function RulesSimulatorModal({ open, onClose }) {
+  if (!open) return null;
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalCard}>
+        <div style={styles.modalHeader}>
+          <div>
+            <h2 style={styles.modalTitle}>Kurallar Simülatörü</h2>
+            <p style={styles.modalSubtitle}>
+              Ürün bazlı kural çıktısını test etmek için hazırlanan ön izleme alanı.
+            </p>
+          </div>
+
+          <button type="button" onClick={onClose} style={styles.secondaryButton}>
+            Kapat
+          </button>
+        </div>
+
+        <div style={styles.modalBody}>
+          <div style={styles.modalGrid}>
+            <section style={styles.simulatorSection}>
+              <div style={styles.simulatorSectionHeader}>
+                <h3 style={styles.simulatorSectionTitle}>Girdi Alanı</h3>
+                <p style={styles.simulatorSectionText}>
+                  Sonraki adımda ürün listesi bağlanacak. Burada ürün ve pazaryeri seçilip
+                  hesaplama yapılacak.
+                </p>
+              </div>
+
+              <div style={styles.formGrid}>
+                <Field label="Pazaryeri">
+                  <SelectInput disabled defaultValue="">
+                    <option value="">Seçiniz</option>
+                  </SelectInput>
+                </Field>
+
+                <Field label="Ürün">
+                  <SelectInput disabled defaultValue="">
+                    <option value="">Sonraki adımda ürün listesi bağlanacak</option>
+                  </SelectInput>
+                </Field>
+
+                <Field label="Alış Fiyatı">
+                  <TextInput disabled placeholder="0,00" />
+                </Field>
+
+                <Field label="Mevcut Satış Fiyatı">
+                  <TextInput disabled placeholder="0,00" />
+                </Field>
+
+                <Field label="Desi">
+                  <TextInput disabled placeholder="0" />
+                </Field>
+
+                <Field label="Rakip Fiyatı">
+                  <TextInput disabled placeholder="Opsiyonel" />
+                </Field>
+
+                <Field label="Firma Minimum Fiyatı">
+                  <TextInput disabled placeholder="0,00" />
+                </Field>
+
+                <Field label="Pazaryeri İndirim Oranı (%)">
+                  <TextInput disabled placeholder="0" />
+                </Field>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <button type="button" disabled style={styles.disabledPrimaryButton}>
+                    Simülasyonu Hesapla
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section style={styles.simulatorSection}>
+              <div style={styles.simulatorSectionHeader}>
+                <h3 style={styles.simulatorSectionTitle}>Uygulanan Kurallar</h3>
+                <p style={styles.simulatorSectionText}>
+                  Hangi genel / özel / kargo kuralının seçildiği burada gösterilecek.
+                </p>
+              </div>
+
+              <div style={styles.simulatorStack}>
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Pazaryeri Genel Kuralı</div>
+                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                </div>
+
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Pazaryeri Özel Kuralı</div>
+                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                </div>
+
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Kargo Kuralı</div>
+                  <div style={styles.simulatorInfoValue}>Henüz seçilmedi</div>
+                </div>
+
+                <div style={styles.simulatorInfoCard}>
+                  <div style={styles.simulatorInfoLabel}>Açıklama</div>
+                  <div style={styles.simulatorInfoText}>
+                    Bu alanda özel kural bulunduysa genel kuralı override ettiği bilgisi,
+                    minimum fiyat koruması ve pazaryeri indirimi etkisi gösterilecek.
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style={styles.simulatorSection}>
+              <div style={styles.simulatorSectionHeader}>
+                <h3 style={styles.simulatorSectionTitle}>Sonuç</h3>
+                <p style={styles.simulatorSectionText}>
+                  Önerilen fiyat, protected floor ve finansal kırılım burada gösterilecek.
+                </p>
+              </div>
+
+              <div style={styles.simulatorSummaryGrid}>
+                <div style={styles.simulatorSummaryCard}>
+                  <div style={styles.simulatorInfoLabel}>Önerilen Liste Fiyatı</div>
+                  <div style={styles.simulatorBigValue}>—</div>
+                </div>
+
+                <div style={styles.simulatorSummaryCard}>
+                  <div style={styles.simulatorInfoLabel}>Müşterinin Gördüğü Fiyat</div>
+                  <div style={styles.simulatorBigValue}>—</div>
+                </div>
+
+                <div style={styles.simulatorSummaryCard}>
+                  <div style={styles.simulatorInfoLabel}>Protected Floor</div>
+                  <div style={styles.simulatorBigValue}>—</div>
+                </div>
+
+                <div style={styles.simulatorSummaryCard}>
+                  <div style={styles.simulatorInfoLabel}>Net Kâr Marjı</div>
+                  <div style={styles.simulatorBigValue}>—</div>
+                </div>
+              </div>
+
+              <div style={styles.simulatorBreakdownCard}>
+                <div style={styles.simulatorBreakdownTitle}>Finansal Kırılım</div>
+                <div style={styles.simulatorBreakdownBody}>
+                  <SimulatorValueRow label="Komisyon" value="—" />
+                  <SimulatorValueRow label="Kargo" value="—" />
+                  <SimulatorValueRow label="Ek Kesintiler" value="—" />
+                  <SimulatorValueRow label="Platform Hizmet Bedeli" value="—" />
+                  <SimulatorValueRow label="Stopaj" value="—" />
+                  <SimulatorValueRow label="Net Kâr" value="—" strong />
+                </div>
+              </div>
+
+              <div style={styles.simulatorWarningCard}>
+                <div style={styles.simulatorWarningTitle}>Uyarılar</div>
+                <div style={styles.simulatorWarningText}>
+                  Bu alanda minimum fiyat koruması, pazaryeri indirimi ve ücretsiz kargo riski
+                  gibi uyarılar gösterilecek.
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RulesPage() {
   const { user, token, loading } = useAuth();
   const router = useRouter();
@@ -153,6 +329,7 @@ export default function RulesPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showShippingHelp, setShowShippingHelp] = useState(false);
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -188,6 +365,7 @@ export default function RulesPage() {
 
   const categoryOptions = useMemo(() => buildCategoryOptions(categories), [categories]);
   const productOptions = useMemo(() => buildProductOptions(products), [products]);
+
   const marketplaceRuleOptions = useMemo(() => {
     return marketplaceRules.map((rule) => ({
       id: rule.id,
@@ -549,24 +727,54 @@ export default function RulesPage() {
           <div>
             <h1 style={styles.pageTitle}>⚙️ Kurallar Merkezi</h1>
             <p style={styles.pageSubtitle}>
-              Genel fallback, pazaryeri bazlı istisnalar, kargo baremleri, kâr hedefleri ve ek kesintiler bu ekrandan yönetilir.
+              Genel fallback, pazaryeri bazlı istisnalar, kargo baremleri, kâr hedefleri ve ek
+              kesintiler bu ekrandan yönetilir.
             </p>
           </div>
 
           <div style={styles.toolbar}>
-            <button type="button" onClick={fetchAll} style={styles.secondaryButton} disabled={loadingData || saving}>
+            <button
+              type="button"
+              onClick={fetchAll}
+              style={styles.secondaryButton}
+              disabled={loadingData || saving}
+            >
               Yenile
             </button>
 
-            <button type="button" onClick={handleExport} style={styles.secondaryButton} disabled={loadingData || saving}>
+            <button
+              type="button"
+              onClick={() => setIsSimulatorOpen(true)}
+              style={styles.secondaryButton}
+              disabled={loadingData || saving}
+            >
+              Simülatörü Aç
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExport}
+              style={styles.secondaryButton}
+              disabled={loadingData || saving}
+            >
               Excel Dışa Aktar
             </button>
 
-            <button type="button" onClick={() => fileInputRef.current?.click()} style={styles.secondaryButton} disabled={loadingData || saving}>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={styles.secondaryButton}
+              disabled={loadingData || saving}
+            >
               Excel İçe Aktar
             </button>
 
-            <button type="button" onClick={handleTemplateDownload} style={styles.primaryButton} disabled={loadingData || saving}>
+            <button
+              type="button"
+              onClick={handleTemplateDownload}
+              style={styles.primaryButton}
+              disabled={loadingData || saving}
+            >
               Şablon İndir
             </button>
 
@@ -613,13 +821,15 @@ export default function RulesPage() {
         ) : (
           <>
             {activeTab === 'marketplace' && (
-              <div style={styles.grid}>
+              <div style={styles.grid} className="rules-grid-responsive">
                 <SectionCard title="Pazaryeri Kural Formu">
                   <form onSubmit={handleMarketplaceSubmit} style={styles.formGrid}>
                     <Field label="Kapsam">
                       <SelectInput
                         value={marketplaceForm.scope_type}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, scope_type: e.target.value }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({ ...prev, scope_type: e.target.value }))
+                        }
                       >
                         <option value="general">General</option>
                         <option value="marketplace">Pazaryeri</option>
@@ -631,7 +841,12 @@ export default function RulesPage() {
                     <Field label="Pazaryeri">
                       <SelectInput
                         value={marketplaceForm.marketplace_id}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            marketplace_id: e.target.value,
+                          }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {marketplaces.map((item) => (
@@ -645,7 +860,9 @@ export default function RulesPage() {
                     <Field label="Kategori">
                       <SelectInput
                         value={marketplaceForm.category_id}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({ ...prev, category_id: e.target.value }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {categoryOptions.map((item) => (
@@ -659,7 +876,9 @@ export default function RulesPage() {
                     <Field label="Ürün">
                       <SelectInput
                         value={marketplaceForm.product_id}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, product_id: e.target.value }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({ ...prev, product_id: e.target.value }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {productOptions.map((item) => (
@@ -674,7 +893,12 @@ export default function RulesPage() {
                       <TextInput
                         type="number"
                         value={marketplaceForm.priority}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            priority: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -683,14 +907,24 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={marketplaceForm.commission_rate}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, commission_rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            commission_rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
                     <Field label="Komisyon Bazı">
                       <SelectInput
                         value={marketplaceForm.commission_base}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, commission_base: e.target.value }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            commission_base: e.target.value,
+                          }))
+                        }
                       >
                         <option value="net_ex_vat">KDV Hariç Net</option>
                         <option value="gross_price">Brüt Fiyat</option>
@@ -702,7 +936,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={marketplaceForm.vat_rate}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, vat_rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            vat_rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -711,7 +950,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={marketplaceForm.fixed_fee}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, fixed_fee: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            fixed_fee: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -721,7 +965,10 @@ export default function RulesPage() {
                         step="0.01"
                         value={marketplaceForm.marketplace_discount_rate}
                         onChange={(e) =>
-                          setMarketplaceForm((prev) => ({ ...prev, marketplace_discount_rate: normalizeNumber(e.target.value) }))
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            marketplace_discount_rate: normalizeNumber(e.target.value),
+                          }))
                         }
                       />
                     </Field>
@@ -746,7 +993,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={marketplaceForm.rounding_ending}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, rounding_ending: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            rounding_ending: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -755,7 +1007,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={marketplaceForm.min_margin_rate}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, min_margin_rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            min_margin_rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -765,7 +1022,10 @@ export default function RulesPage() {
                         step="0.01"
                         value={marketplaceForm.target_margin_rate}
                         onChange={(e) =>
-                          setMarketplaceForm((prev) => ({ ...prev, target_margin_rate: normalizeNumber(e.target.value) }))
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            target_margin_rate: normalizeNumber(e.target.value),
+                          }))
                         }
                       />
                     </Field>
@@ -773,7 +1033,12 @@ export default function RulesPage() {
                     <Field label="Aktif mi">
                       <SelectInput
                         value={marketplaceForm.is_active ? '1' : '0'}
-                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            is_active: e.target.value === '1',
+                          }))
+                        }
                       >
                         <option value="1">Evet</option>
                         <option value="0">Hayır</option>
@@ -785,7 +1050,9 @@ export default function RulesPage() {
                         <TextArea
                           rows={3}
                           value={marketplaceForm.notes}
-                          onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, notes: e.target.value }))}
+                          onChange={(e) =>
+                            setMarketplaceForm((prev) => ({ ...prev, notes: e.target.value }))
+                          }
                         />
                       </Field>
                     </div>
@@ -794,7 +1061,12 @@ export default function RulesPage() {
                       <button type="submit" style={styles.primaryButton} disabled={saving}>
                         {editingMarketplaceRuleId ? 'Güncelle' : 'Kaydet'}
                       </button>
-                      <button type="button" style={styles.secondaryButton} onClick={resetMarketplaceForm} disabled={saving}>
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={resetMarketplaceForm}
+                        disabled={saving}
+                      >
                         Temizle
                       </button>
                     </div>
@@ -823,22 +1095,32 @@ export default function RulesPage() {
                             <td>{rule.scope_type || 'general'}</td>
                             <td>{rule.marketplace_name || 'General'}</td>
                             <td>{rule.category_name || '—'}</td>
-                            <td>{rule.product_stock_code ? `${rule.product_stock_code} - ${rule.product_name || ''}` : (rule.product_name || '—')}</td>
+                            <td>
+                              {rule.product_stock_code
+                                ? `${rule.product_stock_code} - ${rule.product_name || ''}`
+                                : rule.product_name || '—'}
+                            </td>
                             <td>{rule.commission_rate ?? 0}</td>
                             <td>{rule.min_margin_rate ?? rule.minimum_profit_margin ?? 0}</td>
                             <td>{rule.target_margin_rate ?? rule.target_profit_margin ?? 0}</td>
                             <td>{formatBool(rule.is_active)}</td>
                             <td>
                               <div style={styles.rowActions}>
-                                <button type="button" style={styles.linkButton} onClick={() => startEditMarketplaceRule(rule)}>
+                                <button
+                                  type="button"
+                                  style={styles.linkButton}
+                                  onClick={() => startEditMarketplaceRule(rule)}
+                                >
                                   Düzenle
                                 </button>
                                 <button
                                   type="button"
                                   style={styles.linkDangerButton}
                                   onClick={() =>
-                                    deleteRule(`${API_URL}/api/rules/marketplace/${rule.id}`, 'Pazaryeri kuralı silindi')
-                                      .catch((err) => setError(getErrorMessage(err)))
+                                    deleteRule(
+                                      `${API_URL}/api/rules/marketplace/${rule.id}`,
+                                      'Pazaryeri kuralı silindi'
+                                    ).catch((err) => setError(getErrorMessage(err)))
                                   }
                                 >
                                   Sil
@@ -849,7 +1131,9 @@ export default function RulesPage() {
                         ))}
                         {marketplaceRules.length === 0 && (
                           <tr>
-                            <td colSpan={9} style={styles.emptyCell}>Kayıt yok</td>
+                            <td colSpan={9} style={styles.emptyCell}>
+                              Kayıt yok
+                            </td>
                           </tr>
                         )}
                       </tbody>
@@ -860,7 +1144,7 @@ export default function RulesPage() {
             )}
 
             {activeTab === 'shipping' && (
-              <div style={styles.grid}>
+              <div style={styles.grid} className="rules-grid-responsive">
                 <SectionCard
                   title="Kargo Kural Formu"
                   right={
@@ -878,10 +1162,10 @@ export default function RulesPage() {
                       </button>
                       {showShippingHelp && (
                         <div style={styles.infoPopover}>
-                          Sistem önce pazaryerine özel kargo kurallarını kontrol eder.
-                          Uygun kayıt bulunamazsa genel kuralları uygular.
-                          Eşleşme hem fiyat aralığına hem desi aralığına göre yapılır.
-                          Pazaryeri boş bırakılırsa kayıt genel kural kabul edilir.
+                          Sistem önce pazaryerine özel kargo kurallarını kontrol eder. Uygun kayıt
+                          bulunamazsa genel kuralları uygular. Eşleşme hem fiyat aralığına hem desi
+                          aralığına göre yapılır. Pazaryeri boş bırakılırsa kayıt genel kural kabul
+                          edilir.
                         </div>
                       )}
                     </div>
@@ -894,7 +1178,12 @@ export default function RulesPage() {
                     >
                       <SelectInput
                         value={shippingForm.marketplace_id}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            marketplace_id: e.target.value,
+                          }))
+                        }
                       >
                         <option value="">Genel</option>
                         {marketplaces.map((item) => (
@@ -910,7 +1199,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={shippingForm.min_price}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, min_price: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            min_price: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -919,7 +1213,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={shippingForm.max_price}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, max_price: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            max_price: normalizeNumber(e.target.value),
+                          }))
+                        }
                         placeholder="Boş = üst sınır yok"
                       />
                     </Field>
@@ -929,7 +1228,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={shippingForm.min_desi}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, min_desi: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            min_desi: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -938,7 +1242,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={shippingForm.max_desi}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, max_desi: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            max_desi: normalizeNumber(e.target.value),
+                          }))
+                        }
                         placeholder="Boş = üst sınır yok"
                       />
                     </Field>
@@ -948,14 +1257,24 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={shippingForm.shipping_cost}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, shipping_cost: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            shipping_cost: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
                     <Field label="Aktif mi">
                       <SelectInput
                         value={shippingForm.is_active ? '1' : '0'}
-                        onChange={(e) => setShippingForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                        onChange={(e) =>
+                          setShippingForm((prev) => ({
+                            ...prev,
+                            is_active: e.target.value === '1',
+                          }))
+                        }
                       >
                         <option value="1">Evet</option>
                         <option value="0">Hayır</option>
@@ -967,7 +1286,9 @@ export default function RulesPage() {
                         <TextArea
                           rows={3}
                           value={shippingForm.notes}
-                          onChange={(e) => setShippingForm((prev) => ({ ...prev, notes: e.target.value }))}
+                          onChange={(e) =>
+                            setShippingForm((prev) => ({ ...prev, notes: e.target.value }))
+                          }
                         />
                       </Field>
                     </div>
@@ -976,7 +1297,12 @@ export default function RulesPage() {
                       <button type="submit" style={styles.primaryButton} disabled={saving}>
                         {editingShippingRuleId ? 'Güncelle' : 'Kaydet'}
                       </button>
-                      <button type="button" style={styles.secondaryButton} onClick={resetShippingForm} disabled={saving}>
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={resetShippingForm}
+                        disabled={saving}
+                      >
                         Temizle
                       </button>
                     </div>
@@ -1010,15 +1336,21 @@ export default function RulesPage() {
                             <td>{formatBool(rule.is_active)}</td>
                             <td>
                               <div style={styles.rowActions}>
-                                <button type="button" style={styles.linkButton} onClick={() => startEditShippingRule(rule)}>
+                                <button
+                                  type="button"
+                                  style={styles.linkButton}
+                                  onClick={() => startEditShippingRule(rule)}
+                                >
                                   Düzenle
                                 </button>
                                 <button
                                   type="button"
                                   style={styles.linkDangerButton}
                                   onClick={() =>
-                                    deleteRule(`${API_URL}/api/rules/shipping/${rule.id}`, 'Kargo kuralı silindi')
-                                      .catch((err) => setError(getErrorMessage(err)))
+                                    deleteRule(
+                                      `${API_URL}/api/rules/shipping/${rule.id}`,
+                                      'Kargo kuralı silindi'
+                                    ).catch((err) => setError(getErrorMessage(err)))
                                   }
                                 >
                                   Sil
@@ -1029,7 +1361,9 @@ export default function RulesPage() {
                         ))}
                         {shippingRules.length === 0 && (
                           <tr>
-                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                            <td colSpan={8} style={styles.emptyCell}>
+                              Kayıt yok
+                            </td>
                           </tr>
                         )}
                       </tbody>
@@ -1040,13 +1374,15 @@ export default function RulesPage() {
             )}
 
             {activeTab === 'profit' && (
-              <div style={styles.grid}>
+              <div style={styles.grid} className="rules-grid-responsive">
                 <SectionCard title="Kâr Hedefi Formu">
                   <form onSubmit={handleProfitSubmit} style={styles.formGrid}>
                     <Field label="Kapsam">
                       <SelectInput
                         value={profitForm.scope_type}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, scope_type: e.target.value }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({ ...prev, scope_type: e.target.value }))
+                        }
                       >
                         <option value="general">General</option>
                         <option value="marketplace">Pazaryeri</option>
@@ -1058,7 +1394,9 @@ export default function RulesPage() {
                     <Field label="Pazaryeri">
                       <SelectInput
                         value={profitForm.marketplace_id}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({ ...prev, marketplace_id: e.target.value }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {marketplaces.map((item) => (
@@ -1072,7 +1410,9 @@ export default function RulesPage() {
                     <Field label="Kategori">
                       <SelectInput
                         value={profitForm.category_id}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({ ...prev, category_id: e.target.value }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {categoryOptions.map((item) => (
@@ -1086,7 +1426,9 @@ export default function RulesPage() {
                     <Field label="Ürün">
                       <SelectInput
                         value={profitForm.product_id}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, product_id: e.target.value }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({ ...prev, product_id: e.target.value }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {productOptions.map((item) => (
@@ -1101,7 +1443,12 @@ export default function RulesPage() {
                       <TextInput
                         type="number"
                         value={profitForm.priority}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({
+                            ...prev,
+                            priority: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -1110,7 +1457,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={profitForm.min_margin_rate}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, min_margin_rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({
+                            ...prev,
+                            min_margin_rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -1119,14 +1471,24 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={profitForm.target_margin_rate}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, target_margin_rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({
+                            ...prev,
+                            target_margin_rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
                     <Field label="Aktif mi">
                       <SelectInput
                         value={profitForm.is_active ? '1' : '0'}
-                        onChange={(e) => setProfitForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                        onChange={(e) =>
+                          setProfitForm((prev) => ({
+                            ...prev,
+                            is_active: e.target.value === '1',
+                          }))
+                        }
                       >
                         <option value="1">Evet</option>
                         <option value="0">Hayır</option>
@@ -1138,7 +1500,9 @@ export default function RulesPage() {
                         <TextArea
                           rows={3}
                           value={profitForm.notes}
-                          onChange={(e) => setProfitForm((prev) => ({ ...prev, notes: e.target.value }))}
+                          onChange={(e) =>
+                            setProfitForm((prev) => ({ ...prev, notes: e.target.value }))
+                          }
                         />
                       </Field>
                     </div>
@@ -1147,7 +1511,12 @@ export default function RulesPage() {
                       <button type="submit" style={styles.primaryButton} disabled={saving}>
                         {editingProfitTargetId ? 'Güncelle' : 'Kaydet'}
                       </button>
-                      <button type="button" style={styles.secondaryButton} onClick={resetProfitForm} disabled={saving}>
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={resetProfitForm}
+                        disabled={saving}
+                      >
                         Temizle
                       </button>
                     </div>
@@ -1175,21 +1544,31 @@ export default function RulesPage() {
                             <td>{rule.scope_type || 'general'}</td>
                             <td>{rule.marketplace_name || 'General'}</td>
                             <td>{rule.category_name || '—'}</td>
-                            <td>{rule.product_stock_code ? `${rule.product_stock_code} - ${rule.product_name || ''}` : (rule.product_name || '—')}</td>
+                            <td>
+                              {rule.product_stock_code
+                                ? `${rule.product_stock_code} - ${rule.product_name || ''}`
+                                : rule.product_name || '—'}
+                            </td>
                             <td>{rule.min_margin_rate ?? rule.min_profit_margin ?? 0}</td>
                             <td>{rule.target_margin_rate ?? rule.target_profit_margin ?? 0}</td>
                             <td>{formatBool(rule.is_active)}</td>
                             <td>
                               <div style={styles.rowActions}>
-                                <button type="button" style={styles.linkButton} onClick={() => startEditProfitTarget(rule)}>
+                                <button
+                                  type="button"
+                                  style={styles.linkButton}
+                                  onClick={() => startEditProfitTarget(rule)}
+                                >
                                   Düzenle
                                 </button>
                                 <button
                                   type="button"
                                   style={styles.linkDangerButton}
                                   onClick={() =>
-                                    deleteRule(`${API_URL}/api/rules/profit-targets/${rule.id}`, 'Kâr hedefi silindi')
-                                      .catch((err) => setError(getErrorMessage(err)))
+                                    deleteRule(
+                                      `${API_URL}/api/rules/profit-targets/${rule.id}`,
+                                      'Kâr hedefi silindi'
+                                    ).catch((err) => setError(getErrorMessage(err)))
                                   }
                                 >
                                   Sil
@@ -1200,7 +1579,9 @@ export default function RulesPage() {
                         ))}
                         {profitTargets.length === 0 && (
                           <tr>
-                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                            <td colSpan={8} style={styles.emptyCell}>
+                              Kayıt yok
+                            </td>
                           </tr>
                         )}
                       </tbody>
@@ -1211,13 +1592,18 @@ export default function RulesPage() {
             )}
 
             {activeTab === 'deductions' && (
-              <div style={styles.grid}>
+              <div style={styles.grid} className="rules-grid-responsive">
                 <SectionCard title="Ek Kesinti Formu">
                   <form onSubmit={handleExtraSubmit} style={styles.formGrid}>
                     <Field label="Pazaryeri Kuralı">
                       <SelectInput
                         value={extraForm.marketplace_rule_id}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, marketplace_rule_id: e.target.value }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            marketplace_rule_id: e.target.value,
+                          }))
+                        }
                       >
                         <option value="">Seçiniz</option>
                         {marketplaceRuleOptions.map((item) => (
@@ -1231,14 +1617,21 @@ export default function RulesPage() {
                     <Field label="Ad">
                       <TextInput
                         value={extraForm.name}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, name: e.target.value }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({ ...prev, name: e.target.value }))
+                        }
                       />
                     </Field>
 
                     <Field label="Kesinti Tipi">
                       <SelectInput
                         value={extraForm.deduction_type}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, deduction_type: e.target.value }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            deduction_type: e.target.value,
+                          }))
+                        }
                       >
                         <option value="withholding">Stopaj</option>
                         <option value="other">Diğer</option>
@@ -1249,7 +1642,12 @@ export default function RulesPage() {
                     <Field label="Hesaplama Tipi">
                       <SelectInput
                         value={extraForm.calculation_type}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, calculation_type: e.target.value }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            calculation_type: e.target.value,
+                          }))
+                        }
                       >
                         <option value="percentage">Yüzde</option>
                         <option value="fixed">Sabit</option>
@@ -1259,7 +1657,12 @@ export default function RulesPage() {
                     <Field label="Baz Tutar Tipi">
                       <SelectInput
                         value={extraForm.base_amount_type}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, base_amount_type: e.target.value }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            base_amount_type: e.target.value,
+                          }))
+                        }
                       >
                         <option value="net_ex_vat">Net (KDV Hariç)</option>
                         <option value="gross_price">Brüt Fiyat</option>
@@ -1272,7 +1675,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={extraForm.rate}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, rate: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            rate: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -1281,7 +1689,12 @@ export default function RulesPage() {
                         type="number"
                         step="0.01"
                         value={extraForm.fixed_amount}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, fixed_amount: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            fixed_amount: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
@@ -1289,14 +1702,24 @@ export default function RulesPage() {
                       <TextInput
                         type="number"
                         value={extraForm.priority}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            priority: normalizeNumber(e.target.value),
+                          }))
+                        }
                       />
                     </Field>
 
                     <Field label="Aktif mi">
                       <SelectInput
                         value={extraForm.is_active ? '1' : '0'}
-                        onChange={(e) => setExtraForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                        onChange={(e) =>
+                          setExtraForm((prev) => ({
+                            ...prev,
+                            is_active: e.target.value === '1',
+                          }))
+                        }
                       >
                         <option value="1">Evet</option>
                         <option value="0">Hayır</option>
@@ -1308,7 +1731,9 @@ export default function RulesPage() {
                         <TextArea
                           rows={3}
                           value={extraForm.notes}
-                          onChange={(e) => setExtraForm((prev) => ({ ...prev, notes: e.target.value }))}
+                          onChange={(e) =>
+                            setExtraForm((prev) => ({ ...prev, notes: e.target.value }))
+                          }
                         />
                       </Field>
                     </div>
@@ -1317,7 +1742,12 @@ export default function RulesPage() {
                       <button type="submit" style={styles.primaryButton} disabled={saving}>
                         {editingExtraDeductionId ? 'Güncelle' : 'Kaydet'}
                       </button>
-                      <button type="button" style={styles.secondaryButton} onClick={resetExtraForm} disabled={saving}>
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={resetExtraForm}
+                        disabled={saving}
+                      >
                         Temizle
                       </button>
                     </div>
@@ -1351,15 +1781,21 @@ export default function RulesPage() {
                             <td>{formatBool(rule.is_active)}</td>
                             <td>
                               <div style={styles.rowActions}>
-                                <button type="button" style={styles.linkButton} onClick={() => startEditExtraDeduction(rule)}>
+                                <button
+                                  type="button"
+                                  style={styles.linkButton}
+                                  onClick={() => startEditExtraDeduction(rule)}
+                                >
                                   Düzenle
                                 </button>
                                 <button
                                   type="button"
                                   style={styles.linkDangerButton}
                                   onClick={() =>
-                                    deleteRule(`${API_URL}/api/rules/extra-deductions/${rule.id}`, 'Ek kesinti silindi')
-                                      .catch((err) => setError(getErrorMessage(err)))
+                                    deleteRule(
+                                      `${API_URL}/api/rules/extra-deductions/${rule.id}`,
+                                      'Ek kesinti silindi'
+                                    ).catch((err) => setError(getErrorMessage(err)))
                                   }
                                 >
                                   Sil
@@ -1370,7 +1806,9 @@ export default function RulesPage() {
                         ))}
                         {extraDeductions.length === 0 && (
                           <tr>
-                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                            <td colSpan={8} style={styles.emptyCell}>
+                              Kayıt yok
+                            </td>
                           </tr>
                         )}
                       </tbody>
@@ -1382,6 +1820,8 @@ export default function RulesPage() {
           </>
         )}
       </div>
+
+      <RulesSimulatorModal open={isSimulatorOpen} onClose={() => setIsSimulatorOpen(false)} />
     </>
   );
 }
@@ -1425,6 +1865,17 @@ const styles = {
     color: '#fff',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  disabledPrimaryButton: {
+    height: 44,
+    width: '100%',
+    padding: '0 16px',
+    borderRadius: 10,
+    border: 'none',
+    background: '#94a3b8',
+    color: '#fff',
+    fontWeight: 700,
+    cursor: 'not-allowed',
   },
   secondaryButton: {
     height: 40,
@@ -1613,6 +2064,176 @@ const styles = {
     boxShadow: '0 12px 32px rgba(15, 23, 42, 0.12)',
     zIndex: 20,
   },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15, 23, 42, 0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    zIndex: 1000,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 1500,
+    maxHeight: '92vh',
+    overflow: 'hidden',
+    background: '#fff',
+    borderRadius: 20,
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 30px 70px rgba(15, 23, 42, 0.25)',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  modalHeader: {
+    padding: '20px 24px',
+    borderBottom: '1px solid #e2e8f0',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: 24,
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  modalSubtitle: {
+    margin: '6px 0 0',
+    color: '#64748b',
+    lineHeight: 1.5,
+  },
+  modalBody: {
+    padding: 24,
+    overflowY: 'auto',
+  },
+  modalGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1.1fr 1fr 1fr',
+    gap: 18,
+    alignItems: 'start',
+  },
+  simulatorSection: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 18,
+    padding: 18,
+    background: '#fff',
+    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.04)',
+  },
+  simulatorSectionHeader: {
+    marginBottom: 16,
+  },
+  simulatorSectionTitle: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  simulatorSectionText: {
+    margin: '6px 0 0',
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 1.5,
+  },
+  simulatorStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  simulatorInfoCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: 14,
+    background: '#f8fafc',
+  },
+  simulatorInfoLabel: {
+    fontSize: 12,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    color: '#64748b',
+  },
+  simulatorInfoValue: {
+    marginTop: 8,
+    fontSize: 15,
+    fontWeight: 700,
+    color: '#0f172a',
+  },
+  simulatorInfoText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#334155',
+    lineHeight: 1.6,
+  },
+  simulatorSummaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 12,
+    marginBottom: 14,
+  },
+  simulatorSummaryCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: 14,
+    background: '#f8fafc',
+  },
+  simulatorBigValue: {
+    marginTop: 8,
+    fontSize: 24,
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  simulatorBreakdownCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: 14,
+    padding: 14,
+    background: '#fff',
+    marginBottom: 14,
+  },
+  simulatorBreakdownTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: 10,
+  },
+  simulatorBreakdownBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  simulatorValueRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingBottom: 8,
+    borderBottom: '1px solid #e2e8f0',
+    fontSize: 14,
+    color: '#475569',
+  },
+  simulatorValueRowStrong: {
+    color: '#0f172a',
+    fontWeight: 800,
+  },
+  simulatorWarningCard: {
+    border: '1px solid #fde68a',
+    borderRadius: 14,
+    padding: 14,
+    background: '#fffbeb',
+  },
+  simulatorWarningTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#92400e',
+    marginBottom: 8,
+  },
+  simulatorWarningText: {
+    fontSize: 14,
+    color: '#b45309',
+    lineHeight: 1.6,
+  },
 };
 
 if (typeof window !== 'undefined') {
@@ -1637,6 +2258,11 @@ if (typeof window !== 'undefined') {
       }
       @media (max-width: 1200px) {
         .rules-grid-responsive {
+          grid-template-columns: 1fr !important;
+        }
+      }
+      @media (max-width: 1400px) {
+        .rules-simulator-responsive {
           grid-template-columns: 1fr !important;
         }
       }
