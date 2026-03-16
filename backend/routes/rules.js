@@ -81,7 +81,10 @@ function worksheetToObjects(worksheet) {
     row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
       const key = headers[colNumber];
       if (!key) return;
-      const cellValue = cell.value && typeof cell.value === 'object' && cell.value.text ? cell.value.text : cell.value;
+      const cellValue =
+        cell.value && typeof cell.value === 'object' && cell.value.text
+          ? cell.value.text
+          : cell.value;
       values[key] = cellValue;
     });
 
@@ -105,7 +108,13 @@ function pickValue(values, ...keys) {
 
 function findWorksheet(workbook, aliases) {
   const normalizedAliases = aliases.map(normalizeSheetName);
-  return workbook.worksheets.find((worksheet) => normalizedAliases.includes(normalizeSheetName(worksheet.name)));
+  return workbook.worksheets.find((worksheet) =>
+    normalizedAliases.includes(normalizeSheetName(worksheet.name))
+  );
+}
+
+function normalizeShippingScope(marketplaceId) {
+  return marketplaceId ? 'marketplace' : 'general';
 }
 
 async function resolveMarketplaceId(client, values) {
@@ -198,6 +207,114 @@ async function resolveMarketplaceRuleId(client, values) {
   return result.rows[0]?.id || null;
 }
 
+async function buildShippingRulePayload(client, values) {
+  const marketplaceId = await resolveMarketplaceId(client, values);
+
+  const minPrice =
+    toNullableNumber(
+      pickValue(values, 'min_price', 'min_fiyat', 'min_tutar', 'min_tutar_tl')
+    ) ?? 0;
+
+  const maxPrice = toNullableNumber(
+    pickValue(values, 'max_price', 'max_fiyat', 'max_tutar', 'max_tutar_tl')
+  );
+
+  const minDesi =
+    toNullableNumber(
+      pickValue(values, 'min_desi', 'min_desi_degeri')
+    ) ?? 0;
+
+  const maxDesi = toNullableNumber(
+    pickValue(values, 'max_desi', 'max_desi_degeri')
+  );
+
+  const shippingCost =
+    toNullableNumber(
+      pickValue(values, 'shipping_cost', 'kargo_maliyeti', 'kargo_ucreti', 'kargo_ucreti_tl')
+    ) ?? 0;
+
+  const isActive = toBoolean(
+    pickValue(values, 'is_active', 'aktif_mi'),
+    true
+  );
+
+  const notes = toNullableText(pickValue(values, 'notes', 'notlar'));
+
+  if (maxPrice !== null && maxPrice < minPrice) {
+    throw new Error('Max Tutar, Min Tutar değerinden küçük olamaz');
+  }
+
+  if (maxDesi !== null && maxDesi < minDesi) {
+    throw new Error('Max Desi, Min Desi değerinden küçük olamaz');
+  }
+
+  if (shippingCost < 0) {
+    throw new Error('Kargo Ücreti 0’dan küçük olamaz');
+  }
+
+  return {
+    scopeType: normalizeShippingScope(marketplaceId),
+    marketplaceId,
+    minPrice,
+    maxPrice,
+    minDesi,
+    maxDesi,
+    shippingCost,
+    isActive,
+    notes,
+    validFrom: formatDate(pickValue(values, 'valid_from', 'gecerlilik_baslangici')),
+    validTo: formatDate(pickValue(values, 'valid_to', 'gecerlilik_bitis')),
+  };
+}
+
+async function ensureNoShippingOverlap(client, payload, excludeId = null) {
+  const maxPrice = payload.maxPrice ?? 999999999;
+  const maxDesi = payload.maxDesi ?? 999999999;
+
+  const result = await client.query(
+    `
+    SELECT
+      sr.id,
+      COALESCE(m.marketplace_name, 'Genel') AS marketplace_name,
+      sr.min_price,
+      sr.max_price,
+      sr.min_desi,
+      sr.max_desi
+    FROM shipping_rules sr
+    LEFT JOIN marketplaces m ON m.id = sr.marketplace_id
+    WHERE
+      (
+        ($1::int IS NULL AND sr.marketplace_id IS NULL)
+        OR sr.marketplace_id = $1
+      )
+      AND COALESCE(sr.min_price, 0) <= $3
+      AND COALESCE(sr.max_price, 999999999) >= $2
+      AND COALESCE(sr.min_desi, 0) <= $5
+      AND COALESCE(sr.max_desi, 999999999) >= $4
+      AND ($6::int IS NULL OR sr.id <> $6)
+      AND COALESCE(sr.is_active, true) = true
+    LIMIT 1
+    `,
+    [
+      payload.marketplaceId,
+      payload.minPrice,
+      maxPrice,
+      payload.minDesi,
+      maxDesi,
+      excludeId,
+    ]
+  );
+
+  if (result.rows[0]) {
+    const row = result.rows[0];
+    throw new Error(
+      `Çakışan kargo kuralı bulundu: #${row.id} | ${row.marketplace_name} | ` +
+      `${row.min_price ?? 0}-${row.max_price ?? '∞'} TL | ` +
+      `${row.min_desi ?? 0}-${row.max_desi ?? '∞'} desi`
+    );
+  }
+}
+
 async function getMarketplaceRules() {
   const result = await pool.query(`
     SELECT
@@ -218,16 +335,28 @@ async function getMarketplaceRules() {
 async function getShippingRules() {
   const result = await pool.query(`
     SELECT
-      sr.*,
-      m.marketplace_name
+      sr.id,
+      sr.scope_type,
+      sr.marketplace_id,
+      COALESCE(m.marketplace_name, '') AS marketplace_name,
+      sr.min_price,
+      sr.max_price,
+      sr.min_desi,
+      sr.max_desi,
+      sr.shipping_cost,
+      sr.is_active,
+      sr.valid_from,
+      sr.valid_to,
+      sr.notes,
+      sr.created_at,
+      sr.updated_at
     FROM shipping_rules sr
     LEFT JOIN marketplaces m ON m.id = sr.marketplace_id
     ORDER BY
-      CASE sr.scope_type WHEN 'marketplace' THEN 1 ELSE 2 END,
+      CASE WHEN sr.marketplace_id IS NULL THEN 2 ELSE 1 END,
       COALESCE(m.marketplace_name, 'General'),
-      sr.priority ASC,
       sr.min_price ASC,
-      sr.min_desi ASC NULLS FIRST,
+      sr.min_desi ASC,
       sr.id DESC
   `);
   return result.rows;
@@ -305,33 +434,18 @@ function buildRulesExportSheets({ marketplaceRules, shippingRules, profitTargets
       name: 'Kargo Kuralları',
       columns: [
         { header: 'id', key: 'id' },
-        { header: 'scope_type', key: 'scope_type' },
-        { header: 'marketplace_id', key: 'marketplace_id' },
         { header: 'marketplace_name', key: 'marketplace_name' },
         { header: 'min_price', key: 'min_price' },
         { header: 'max_price', key: 'max_price' },
         { header: 'min_desi', key: 'min_desi' },
         { header: 'max_desi', key: 'max_desi' },
         { header: 'shipping_cost', key: 'shipping_cost' },
-        { header: 'priority', key: 'priority' },
-        { header: 'free_shipping_enabled', key: 'free_shipping_enabled' },
-        { header: 'free_shipping_threshold', key: 'free_shipping_threshold' },
-        { header: 'free_shipping_funding_type', key: 'free_shipping_funding_type' },
-        { header: 'free_shipping_marketplace_support', key: 'free_shipping_marketplace_support' },
-        { header: 'multi_qty_profit_protection', key: 'multi_qty_profit_protection' },
-        { header: 'profit_check_quantities', key: 'profit_check_quantities' },
-        { header: 'profit_safety_buffer_type', key: 'profit_safety_buffer_type' },
-        { header: 'profit_safety_buffer_value', key: 'profit_safety_buffer_value' },
-        { header: 'loss_prevention_mode', key: 'loss_prevention_mode' },
         { header: 'is_active', key: 'is_active' },
-        { header: 'valid_from', key: 'valid_from' },
-        { header: 'valid_to', key: 'valid_to' },
         { header: 'notes', key: 'notes', width: 30 },
       ],
       rows: shippingRules.map((row) => ({
         ...row,
-        valid_from: formatDate(row.valid_from),
-        valid_to: formatDate(row.valid_to),
+        marketplace_name: row.marketplace_name || '',
       })),
     },
     {
@@ -447,28 +561,37 @@ async function buildRulesTemplateSheets() {
       name: 'Kargo Kuralları',
       columns: [
         { header: 'id', key: 'id' },
-        { header: 'scope_type', key: 'scope_type' },
-        { header: 'marketplace_id', key: 'marketplace_id' },
         { header: 'marketplace_name', key: 'marketplace_name' },
         { header: 'min_price', key: 'min_price' },
         { header: 'max_price', key: 'max_price' },
+        { header: 'min_desi', key: 'min_desi' },
+        { header: 'max_desi', key: 'max_desi' },
         { header: 'shipping_cost', key: 'shipping_cost' },
-        { header: 'priority', key: 'priority' },
         { header: 'is_active', key: 'is_active' },
         { header: 'notes', key: 'notes', width: 30 },
       ],
       rows: [
         {
           id: '',
-          scope_type: 'general',
-          marketplace_id: '',
           marketplace_name: '',
           min_price: 0,
-          max_price: '',
-          shipping_cost: 0,
-          priority: 0,
+          max_price: 299.99,
+          min_desi: 4,
+          max_desi: 6,
+          shipping_cost: 65,
           is_active: true,
-          notes: 'max_price boş bırakılırsa üst sınır uygulanmaz.',
+          notes: 'Pazaryeri boşsa genel kural kabul edilir.',
+        },
+        {
+          id: '',
+          marketplace_name: '',
+          min_price: 300,
+          max_price: '',
+          min_desi: 4,
+          max_desi: 6,
+          shipping_cost: 100,
+          is_active: true,
+          notes: 'Aynı desi için farklı fiyat bareminde farklı kargo tanımlanabilir.',
         },
       ],
     },
@@ -655,88 +778,70 @@ async function upsertMarketplaceRule(client, values) {
 
 async function upsertShippingRule(client, values) {
   const id = toNullableNumber(pickValue(values, 'id'));
+  const payload = await buildShippingRulePayload(client, values);
+
+  await ensureNoShippingOverlap(client, payload, id || null);
+
   const params = [
-    toNullableText(pickValue(values, 'scope_type', 'scope', 'kural_kapsami')) || 'general',
-    await resolveMarketplaceId(client, values),
-    toNullableNumber(pickValue(values, 'min_price', 'min_fiyat')) ?? 0,
-    toNullableNumber(pickValue(values, 'max_price', 'max_fiyat')),
-    toNullableNumber(pickValue(values, 'min_desi', 'min_desi')) ?? 0,
-    toNullableNumber(pickValue(values, 'max_desi', 'max_desi')),
-    toNullableNumber(pickValue(values, 'shipping_cost', 'kargo_maliyeti')) ?? 0,
-    toNullableNumber(pickValue(values, 'priority', 'oncelik')) ?? 100,
-    toBoolean(pickValue(values, 'free_shipping_enabled', 'ucretsiz_kargo_aktif'), false),
-    toNullableNumber(pickValue(values, 'free_shipping_threshold', 'ucretsiz_kargo_esigi')) ?? 1000,
-    toNullableText(pickValue(values, 'free_shipping_funding_type', 'ucretsiz_kargo_karsilama_tipi')) || 'seller',
-    toNullableNumber(pickValue(values, 'free_shipping_marketplace_support', 'pazaryeri_kargo_destegi')) ?? 0,
-    toBoolean(pickValue(values, 'multi_qty_profit_protection', 'coklu_adet_karlilik_kontrolu'), true),
-    toNullableText(pickValue(values, 'profit_check_quantities', 'kontrol_edilecek_adetler')) || '1,2',
-    toNullableText(pickValue(values, 'profit_safety_buffer_type', 'guvenlik_tampon_tipi')) || 'fixed',
-    toNullableNumber(pickValue(values, 'profit_safety_buffer_value', 'guvenlik_tampon_degeri')) ?? 10,
-    toNullableText(pickValue(values, 'loss_prevention_mode', 'zarar_onleme_modu')) || 'block_loss',
-    toBoolean(pickValue(values, 'is_active', 'aktif_mi'), true),
-    formatDate(pickValue(values, 'valid_from', 'gecerlilik_baslangici')),
-    formatDate(pickValue(values, 'valid_to', 'gecerlilik_bitis')),
-    toNullableText(pickValue(values, 'notes', 'notlar')),
+    payload.scopeType,
+    payload.marketplaceId,
+    payload.minPrice,
+    payload.maxPrice,
+    payload.minDesi,
+    payload.maxDesi,
+    payload.shippingCost,
+    payload.isActive,
+    payload.validFrom,
+    payload.validTo,
+    payload.notes,
   ];
 
   if (id) {
     const result = await client.query(
-      `UPDATE shipping_rules
-          SET scope_type = $1,
-              marketplace_id = $2,
-              min_price = $3,
-              max_price = $4,
-              min_desi = $5,
-              max_desi = $6,
-              shipping_cost = $7,
-              priority = $8,
-              free_shipping_enabled = $9,
-              free_shipping_threshold = $10,
-              free_shipping_funding_type = $11,
-              free_shipping_marketplace_support = $12,
-              multi_qty_profit_protection = $13,
-              profit_check_quantities = $14,
-              profit_safety_buffer_type = $15,
-              profit_safety_buffer_value = $16,
-              loss_prevention_mode = $17,
-              is_active = $18,
-              valid_from = $19,
-              valid_to = $20,
-              notes = $21,
-              updated_at = NOW()
-        WHERE id = $22
-      RETURNING *`,
+      `
+      UPDATE shipping_rules
+      SET
+        scope_type = $1,
+        marketplace_id = $2,
+        min_price = $3,
+        max_price = $4,
+        min_desi = $5,
+        max_desi = $6,
+        shipping_cost = $7,
+        is_active = $8,
+        valid_from = $9,
+        valid_to = $10,
+        notes = $11,
+        updated_at = NOW()
+      WHERE id = $12
+      RETURNING *
+      `,
       [...params, id]
     );
 
-    if (!result.rows.length) throw new Error('Kargo kuralı bulunamadı');
+    if (!result.rows.length) {
+      throw new Error('Kargo kuralı bulunamadı');
+    }
+
     return 'updated';
   }
 
   await client.query(
-    `INSERT INTO shipping_rules (
-        scope_type,
-        marketplace_id,
-        min_price,
-        max_price,
-        min_desi,
-        max_desi,
-        shipping_cost,
-        priority,
-        free_shipping_enabled,
-        free_shipping_threshold,
-        free_shipping_funding_type,
-        free_shipping_marketplace_support,
-        multi_qty_profit_protection,
-        profit_check_quantities,
-        profit_safety_buffer_type,
-        profit_safety_buffer_value,
-        loss_prevention_mode,
-        is_active,
-        valid_from,
-        valid_to,
-        notes
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+    `
+    INSERT INTO shipping_rules (
+      scope_type,
+      marketplace_id,
+      min_price,
+      max_price,
+      min_desi,
+      max_desi,
+      shipping_cost,
+      is_active,
+      valid_from,
+      valid_to,
+      notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    `,
     params
   );
 
@@ -1149,116 +1254,92 @@ router.get('/shipping', async (req, res) => {
 });
 
 router.post('/shipping', async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const body = req.body || {};
-    const result = await pool.query(
-      `INSERT INTO shipping_rules (
-          scope_type,
-          marketplace_id,
-          min_price,
-          max_price,
-          min_desi,
-          max_desi,
-          shipping_cost,
-          priority,
-          free_shipping_enabled,
-          free_shipping_threshold,
-          free_shipping_funding_type,
-          free_shipping_marketplace_support,
-          multi_qty_profit_protection,
-          profit_check_quantities,
-          profit_safety_buffer_type,
-          profit_safety_buffer_value,
-          loss_prevention_mode,
-          is_active,
-          valid_from,
-          valid_to,
-          notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-      RETURNING *`,
+    const payload = await buildShippingRulePayload(client, req.body || {});
+    await ensureNoShippingOverlap(client, payload, null);
+
+    const result = await client.query(
+      `
+      INSERT INTO shipping_rules (
+        scope_type,
+        marketplace_id,
+        min_price,
+        max_price,
+        min_desi,
+        max_desi,
+        shipping_cost,
+        is_active,
+        valid_from,
+        valid_to,
+        notes
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      RETURNING *
+      `,
       [
-        body.scope_type || 'general',
-        toNullableNumber(body.marketplace_id),
-        toNullableNumber(body.min_price) ?? 0,
-        toNullableNumber(body.max_price),
-        toNullableNumber(body.min_desi) ?? 0,
-        toNullableNumber(body.max_desi),
-        toNullableNumber(body.shipping_cost) ?? 0,
-        toNullableNumber(body.priority) ?? 100,
-        toBoolean(body.free_shipping_enabled, false),
-        toNullableNumber(body.free_shipping_threshold) ?? 1000,
-        toNullableText(body.free_shipping_funding_type) || 'seller',
-        toNullableNumber(body.free_shipping_marketplace_support) ?? 0,
-        toBoolean(body.multi_qty_profit_protection, true),
-        toNullableText(body.profit_check_quantities) || '1,2',
-        toNullableText(body.profit_safety_buffer_type) || 'fixed',
-        toNullableNumber(body.profit_safety_buffer_value) ?? 10,
-        toNullableText(body.loss_prevention_mode) || 'block_loss',
-        toBoolean(body.is_active, true),
-        body.valid_from || null,
-        body.valid_to || null,
-        toNullableText(body.notes),
+        payload.scopeType,
+        payload.marketplaceId,
+        payload.minPrice,
+        payload.maxPrice,
+        payload.minDesi,
+        payload.maxDesi,
+        payload.shippingCost,
+        payload.isActive,
+        payload.validFrom,
+        payload.validTo,
+        payload.notes,
       ]
     );
 
     res.status(201).json({ rule: result.rows[0] });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
 router.put('/shipping/:id', async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const body = req.body || {};
-    const result = await pool.query(
-      `UPDATE shipping_rules
-          SET scope_type = $1,
-              marketplace_id = $2,
-              min_price = $3,
-              max_price = $4,
-              min_desi = $5,
-              max_desi = $6,
-              shipping_cost = $7,
-              priority = $8,
-              free_shipping_enabled = $9,
-              free_shipping_threshold = $10,
-              free_shipping_funding_type = $11,
-              free_shipping_marketplace_support = $12,
-              multi_qty_profit_protection = $13,
-              profit_check_quantities = $14,
-              profit_safety_buffer_type = $15,
-              profit_safety_buffer_value = $16,
-              loss_prevention_mode = $17,
-              is_active = $18,
-              valid_from = $19,
-              valid_to = $20,
-              notes = $21,
-              updated_at = NOW()
-        WHERE id = $22
-      RETURNING *`,
+    const ruleId = Number(req.params.id);
+    const payload = await buildShippingRulePayload(client, req.body || {});
+    await ensureNoShippingOverlap(client, payload, ruleId);
+
+    const result = await client.query(
+      `
+      UPDATE shipping_rules
+      SET
+        scope_type = $1,
+        marketplace_id = $2,
+        min_price = $3,
+        max_price = $4,
+        min_desi = $5,
+        max_desi = $6,
+        shipping_cost = $7,
+        is_active = $8,
+        valid_from = $9,
+        valid_to = $10,
+        notes = $11,
+        updated_at = NOW()
+      WHERE id = $12
+      RETURNING *
+      `,
       [
-        body.scope_type || 'general',
-        toNullableNumber(body.marketplace_id),
-        toNullableNumber(body.min_price) ?? 0,
-        toNullableNumber(body.max_price),
-        toNullableNumber(body.min_desi) ?? 0,
-        toNullableNumber(body.max_desi),
-        toNullableNumber(body.shipping_cost) ?? 0,
-        toNullableNumber(body.priority) ?? 100,
-        toBoolean(body.free_shipping_enabled, false),
-        toNullableNumber(body.free_shipping_threshold) ?? 1000,
-        toNullableText(body.free_shipping_funding_type) || 'seller',
-        toNullableNumber(body.free_shipping_marketplace_support) ?? 0,
-        toBoolean(body.multi_qty_profit_protection, true),
-        toNullableText(body.profit_check_quantities) || '1,2',
-        toNullableText(body.profit_safety_buffer_type) || 'fixed',
-        toNullableNumber(body.profit_safety_buffer_value) ?? 10,
-        toNullableText(body.loss_prevention_mode) || 'block_loss',
-        toBoolean(body.is_active, true),
-        body.valid_from || null,
-        body.valid_to || null,
-        toNullableText(body.notes),
-        Number(req.params.id),
+        payload.scopeType,
+        payload.marketplaceId,
+        payload.minPrice,
+        payload.maxPrice,
+        payload.minDesi,
+        payload.maxDesi,
+        payload.shippingCost,
+        payload.isActive,
+        payload.validFrom,
+        payload.validTo,
+        payload.notes,
+        ruleId,
       ]
     );
 
@@ -1269,6 +1350,8 @@ router.put('/shipping/:id', async (req, res) => {
     res.json({ rule: result.rows[0] });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

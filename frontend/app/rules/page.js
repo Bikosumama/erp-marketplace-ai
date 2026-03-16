@@ -1,10 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-
 import Navigation from '../../components/Navigation';
-import ExcelToolbar from '../../components/ExcelToolbar';
 import { useAuth } from '../../context/AuthContext';
 import { downloadExcelFile } from '../../lib/downloadExcel';
 
@@ -30,23 +28,12 @@ const emptyMarketplaceRule = {
 };
 
 const emptyShippingRule = {
-  scope_type: 'general',
   marketplace_id: '',
   min_price: 0,
   max_price: '',
   min_desi: 0,
   max_desi: '',
   shipping_cost: 0,
-  priority: 100,
-  free_shipping_enabled: false,
-  free_shipping_threshold: 1000,
-  free_shipping_funding_type: 'seller',
-  free_shipping_marketplace_support: 0,
-  multi_qty_profit_protection: true,
-  profit_check_quantities: '1,2',
-  profit_safety_buffer_type: 'fixed',
-  profit_safety_buffer_value: 10,
-  loss_prevention_mode: 'block_loss',
   is_active: true,
   notes: '',
 };
@@ -76,49 +63,104 @@ const emptyExtraDeduction = {
   notes: '',
 };
 
-function buildCategoryTree(categories, parentId = null, depth = 0) {
-  return categories
-    .filter((category) => {
-      if (category.parent_id === null || category.parent_id === undefined) {
-        return parentId === null;
-      }
-      return Number(category.parent_id) === Number(parentId);
-    })
-    .flatMap((category) => [
-      {
-        id: category.id,
-        label: `${depth > 0 ? `${' '.repeat(depth * 2)}└ ` : ''}${category.name}`,
-      },
-      ...buildCategoryTree(categories, category.id, depth + 1),
-    ]);
-}
-
-function formatPercent(value) {
-  if (value === '' || value === null || value === undefined) return '0%';
+function normalizeNumber(value) {
+  if (value === '' || value === null || value === undefined) return '';
   const number = Number(value);
-  return `${Number.isFinite(number) ? number : 0}%`;
+  return Number.isFinite(number) ? number : '';
 }
 
-function boolText(value) {
+function formatBool(value) {
   return value ? 'Evet' : 'Hayır';
 }
 
-function errorMessageFrom(error) {
-  return error?.message || 'İşlem sırasında hata oluştu';
+function getErrorMessage(err) {
+  return err?.message || 'İşlem sırasında hata oluştu';
+}
+
+function buildCategoryOptions(categories = []) {
+  return (categories || [])
+    .map((item) => ({
+      id: item.id,
+      label: item.name || item.category_name || `Kategori #${item.id}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
+}
+
+function buildProductOptions(products = []) {
+  return (products || [])
+    .map((item) => ({
+      id: item.id,
+      label: item.stock_code
+        ? `${item.stock_code} - ${item.name || item.product_name || `Ürün #${item.id}`}`
+        : item.name || item.product_name || `Ürün #${item.id}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
+}
+
+function lookupLabel(options, value, fallback = '—') {
+  const found = options.find((item) => String(item.id) === String(value));
+  return found?.label || fallback;
+}
+
+function Field({
+  label,
+  children,
+  hint,
+}) {
+  return (
+    <label style={styles.field}>
+      <span style={styles.fieldLabel}>{label}</span>
+      {children}
+      {hint ? <span style={styles.fieldHint}>{hint}</span> : null}
+    </label>
+  );
+}
+
+function TextInput(props) {
+  return <input {...props} style={{ ...styles.input, ...(props.style || {}) }} />;
+}
+
+function SelectInput({ children, ...props }) {
+  return (
+    <select {...props} style={{ ...styles.input, ...(props.style || {}) }}>
+      {children}
+    </select>
+  );
+}
+
+function TextArea(props) {
+  return <textarea {...props} style={{ ...styles.textarea, ...(props.style || {}) }} />;
+}
+
+function SectionCard({ title, children, right }) {
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardHeader}>
+        <h3 style={styles.cardTitle}>{title}</h3>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 export default function RulesPage() {
   const { user, token, loading } = useAuth();
   const router = useRouter();
+  const fileInputRef = useRef(null);
 
   const [activeTab, setActiveTab] = useState('marketplace');
   const [loadingData, setLoadingData] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showShippingHelp, setShowShippingHelp] = useState(false);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const [marketplaces, setMarketplaces] = useState([]);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+
   const [marketplaceRules, setMarketplaceRules] = useState([]);
   const [shippingRules, setShippingRules] = useState([]);
   const [profitTargets, setProfitTargets] = useState([]);
@@ -138,35 +180,20 @@ export default function RulesPage() {
     if (!loading && !user) {
       router.push('/login');
     }
-  }, [loading, router, user]);
+  }, [loading, user, router]);
 
-  const authHeaders = useCallback(
-    (extra = {}) => ({
-      Authorization: `Bearer ${token}`,
-      ...extra,
-    }),
-    [token]
-  );
+  const authHeader = useCallback(() => {
+    return { Authorization: `Bearer ${token}` };
+  }, [token]);
 
-  const fetchJson = useCallback(
-    async (url, options = {}) => {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-          ...authHeaders(),
-          ...(options.headers || {}),
-        },
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || 'İstek başarısız');
-      }
-      return data;
-    },
-    [authHeaders]
-  );
+  const categoryOptions = useMemo(() => buildCategoryOptions(categories), [categories]);
+  const productOptions = useMemo(() => buildProductOptions(products), [products]);
+  const marketplaceRuleOptions = useMemo(() => {
+    return marketplaceRules.map((rule) => ({
+      id: rule.id,
+      label: `#${rule.id} | ${rule.marketplace_name || 'General'} | ${rule.scope_type || 'general'}`,
+    }));
+  }, [marketplaceRules]);
 
   const fetchAll = useCallback(async () => {
     if (!token) return;
@@ -176,6 +203,24 @@ export default function RulesPage() {
 
     try {
       const [
+        marketplacesRes,
+        categoriesRes,
+        productsRes,
+        marketplaceRulesRes,
+        shippingRulesRes,
+        profitTargetsRes,
+        extraDeductionsRes,
+      ] = await Promise.all([
+        fetch(`${API_URL}/api/marketplaces`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/categories`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/products`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/rules/marketplace`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/rules/shipping`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/rules/profit-targets`, { headers: authHeader() }),
+        fetch(`${API_URL}/api/rules/extra-deductions`, { headers: authHeader() }),
+      ]);
+
+      const [
         marketplacesData,
         categoriesData,
         productsData,
@@ -184,14 +229,22 @@ export default function RulesPage() {
         profitTargetsData,
         extraDeductionsData,
       ] = await Promise.all([
-        fetchJson(`${API_URL}/api/marketplaces`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/categories`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/products`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/rules/marketplace`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/rules/shipping`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/rules/profit-targets`, { method: 'GET' }),
-        fetchJson(`${API_URL}/api/rules/extra-deductions`, { method: 'GET' }),
+        marketplacesRes.json(),
+        categoriesRes.json(),
+        productsRes.json(),
+        marketplaceRulesRes.json(),
+        shippingRulesRes.json(),
+        profitTargetsRes.json(),
+        extraDeductionsRes.json(),
       ]);
+
+      if (!marketplacesRes.ok) throw new Error(marketplacesData.error || 'Pazaryerleri yüklenemedi');
+      if (!categoriesRes.ok) throw new Error(categoriesData.error || 'Kategoriler yüklenemedi');
+      if (!productsRes.ok) throw new Error(productsData.error || 'Ürünler yüklenemedi');
+      if (!marketplaceRulesRes.ok) throw new Error(marketplaceRulesData.error || 'Pazaryeri kuralları yüklenemedi');
+      if (!shippingRulesRes.ok) throw new Error(shippingRulesData.error || 'Kargo kuralları yüklenemedi');
+      if (!profitTargetsRes.ok) throw new Error(profitTargetsData.error || 'Kâr hedefleri yüklenemedi');
+      if (!extraDeductionsRes.ok) throw new Error(extraDeductionsData.error || 'Ek kesintiler yüklenemedi');
 
       setMarketplaces(marketplacesData.marketplaces || []);
       setCategories(categoriesData.categories || []);
@@ -200,103 +253,224 @@ export default function RulesPage() {
       setShippingRules(shippingRulesData.rules || []);
       setProfitTargets(profitTargetsData.rules || []);
       setExtraDeductions(extraDeductionsData.rules || []);
-    } catch (fetchError) {
-      setError(errorMessageFrom(fetchError));
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setLoadingData(false);
     }
-  }, [fetchJson, token]);
+  }, [authHeader, token]);
 
   useEffect(() => {
     if (user && token) {
       fetchAll();
     }
-  }, [fetchAll, token, user]);
-
-  const categoryOptions = useMemo(() => buildCategoryTree(categories), [categories]);
-  const productOptions = useMemo(
-    () => products.slice(0, 200).map((product) => [String(product.id), `${product.stock_code} - ${product.name}`]),
-    [products]
-  );
-  const marketplaceOptions = useMemo(
-    () => marketplaces.map((marketplace) => [String(marketplace.id), marketplace.marketplace_name]),
-    [marketplaces]
-  );
+  }, [user, token, fetchAll]);
 
   async function submitForm(url, method, payload, successMessage) {
+    setSaving(true);
     setError('');
     setSuccess('');
-    await fetchJson(url, {
-      method,
-      body: JSON.stringify(payload),
-    });
-    setSuccess(successMessage);
-    await fetchAll();
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeader(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'İşlem başarısız');
+      }
+
+      setSuccess(successMessage);
+      await fetchAll();
+      return data;
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteRule(url, successMessage) {
+    setSaving(true);
     setError('');
     setSuccess('');
-    await fetchJson(url, { method: 'DELETE' });
-    setSuccess(successMessage);
-    await fetchAll();
+
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: authHeader(),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Silme başarısız');
+      }
+
+      setSuccess(successMessage);
+      await fetchAll();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleExport() {
-    await downloadExcelFile({
-      url: `${API_URL}/api/rules/export`,
-      token,
-      method: 'GET',
-      defaultFilename: 'rules-export.xlsx',
-    });
+    try {
+      await downloadExcelFile({
+        url: `${API_URL}/api/rules/export`,
+        token,
+        method: 'GET',
+        defaultFilename: 'rules-export.xlsx',
+      });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   }
 
   async function handleTemplateDownload() {
-    await downloadExcelFile({
-      url: `${API_URL}/api/rules/template`,
-      token,
-      method: 'GET',
-      defaultFilename: 'rules-template.xlsx',
-    });
+    try {
+      await downloadExcelFile({
+        url: `${API_URL}/api/rules/template`,
+        token,
+        method: 'GET',
+        defaultFilename: 'rules-template.xlsx',
+      });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   }
 
-  async function handleImportFile(file) {
+  async function handleImport(file) {
+    if (!file) return;
+
+    setSaving(true);
     setError('');
     setSuccess('');
 
-    const formData = new FormData();
-    formData.append('file', file);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
 
-    const response = await fetch(`${API_URL}/api/rules/import`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: formData,
-    });
+      const response = await fetch(`${API_URL}/api/rules/import`, {
+        method: 'POST',
+        headers: {
+          ...authHeader(),
+        },
+        body: formData,
+      });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || 'Excel içe aktarma başarısız');
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Excel içe aktarma başarısız');
+      }
+
+      setSuccess('Rules Excel içe aktarma tamamlandı');
+      await fetchAll();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
     }
-
-    const report = data.report || {};
-    const summary = report.summary || {};
-    const message = `İçe aktarma tamamlandı. Oluşturulan: ${summary.created || 0}, güncellenen: ${summary.updated || 0}, hatalı: ${summary.failed || 0}.`;
-
-    setSuccess(message);
-
-    if ((summary.failed || 0) > 0 && Array.isArray(report.errors) && report.errors.length > 0) {
-      const detail = report.errors
-        .slice(0, 6)
-        .map((item) => `${item.sheet} / satır ${item.row}: ${item.message}`)
-        .join(' | ');
-      setError(`Bazı satırlar işlenemedi: ${detail}`);
-    }
-
-    await fetchAll();
   }
 
-  async function handleMarketplaceSubmit(event) {
-    event.preventDefault();
+  function resetMarketplaceForm() {
+    setMarketplaceForm(emptyMarketplaceRule);
+    setEditingMarketplaceRuleId(null);
+  }
+
+  function resetShippingForm() {
+    setShippingForm(emptyShippingRule);
+    setEditingShippingRuleId(null);
+  }
+
+  function resetProfitForm() {
+    setProfitForm(emptyProfitTarget);
+    setEditingProfitTargetId(null);
+  }
+
+  function resetExtraForm() {
+    setExtraForm(emptyExtraDeduction);
+    setEditingExtraDeductionId(null);
+  }
+
+  function startEditMarketplaceRule(rule) {
+    setEditingMarketplaceRuleId(rule.id);
+    setMarketplaceForm({
+      scope_type: rule.scope_type || 'general',
+      marketplace_id: rule.marketplace_id ?? '',
+      category_id: rule.category_id ?? '',
+      product_id: rule.product_id ?? '',
+      priority: normalizeNumber(rule.priority) || 0,
+      commission_rate: normalizeNumber(rule.commission_rate) || 0,
+      commission_base: rule.commission_base || 'net_ex_vat',
+      vat_rate: normalizeNumber(rule.vat_rate) || 20,
+      fixed_fee: normalizeNumber(rule.fixed_fee) || 0,
+      marketplace_discount_rate: normalizeNumber(rule.marketplace_discount_rate) || 0,
+      marketplace_discount_funded: Boolean(rule.marketplace_discount_funded),
+      rounding_ending: normalizeNumber(rule.rounding_ending) || 0.9,
+      min_margin_rate: normalizeNumber(rule.min_margin_rate ?? rule.minimum_profit_margin) || 10,
+      target_margin_rate: normalizeNumber(rule.target_margin_rate ?? rule.target_profit_margin) || 18,
+      is_active: Boolean(rule.is_active),
+      notes: rule.notes || '',
+    });
+    setActiveTab('marketplace');
+  }
+
+  function startEditShippingRule(rule) {
+    setEditingShippingRuleId(rule.id);
+    setShippingForm({
+      marketplace_id: rule.marketplace_id ?? '',
+      min_price: normalizeNumber(rule.min_price) || 0,
+      max_price: rule.max_price ?? '',
+      min_desi: normalizeNumber(rule.min_desi) || 0,
+      max_desi: rule.max_desi ?? '',
+      shipping_cost: normalizeNumber(rule.shipping_cost) || 0,
+      is_active: Boolean(rule.is_active),
+      notes: rule.notes || '',
+    });
+    setActiveTab('shipping');
+  }
+
+  function startEditProfitTarget(rule) {
+    setEditingProfitTargetId(rule.id);
+    setProfitForm({
+      scope_type: rule.scope_type || 'general',
+      marketplace_id: rule.marketplace_id ?? '',
+      category_id: rule.category_id ?? '',
+      product_id: rule.product_id ?? '',
+      priority: normalizeNumber(rule.priority) || 0,
+      min_margin_rate: normalizeNumber(rule.min_margin_rate ?? rule.min_profit_margin) || 10,
+      target_margin_rate: normalizeNumber(rule.target_margin_rate ?? rule.target_profit_margin) || 18,
+      is_active: Boolean(rule.is_active),
+      notes: rule.notes || '',
+    });
+    setActiveTab('profit');
+  }
+
+  function startEditExtraDeduction(rule) {
+    setEditingExtraDeductionId(rule.id);
+    setExtraForm({
+      marketplace_rule_id: rule.marketplace_rule_id ?? '',
+      name: rule.name || 'Ek Kesinti',
+      deduction_type: rule.deduction_type || 'other',
+      calculation_type: rule.calculation_type || 'percentage',
+      base_amount_type: rule.base_amount_type || 'net_ex_vat',
+      rate: normalizeNumber(rule.rate) || 0,
+      fixed_amount: normalizeNumber(rule.fixed_amount) || 0,
+      priority: normalizeNumber(rule.priority) || 0,
+      is_active: Boolean(rule.is_active),
+      notes: rule.notes || '',
+    });
+    setActiveTab('deductions');
+  }
+
+  async function handleMarketplaceSubmit(e) {
+    e.preventDefault();
+
     try {
       await submitForm(
         `${API_URL}/api/rules/marketplace${editingMarketplaceRuleId ? `/${editingMarketplaceRuleId}` : ''}`,
@@ -304,15 +478,15 @@ export default function RulesPage() {
         marketplaceForm,
         editingMarketplaceRuleId ? 'Pazaryeri kuralı güncellendi' : 'Pazaryeri kuralı eklendi'
       );
-      setMarketplaceForm(emptyMarketplaceRule);
-      setEditingMarketplaceRuleId(null);
-    } catch (submitError) {
-      setError(errorMessageFrom(submitError));
+      resetMarketplaceForm();
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
-  async function handleShippingSubmit(event) {
-    event.preventDefault();
+  async function handleShippingSubmit(e) {
+    e.preventDefault();
+
     try {
       await submitForm(
         `${API_URL}/api/rules/shipping${editingShippingRuleId ? `/${editingShippingRuleId}` : ''}`,
@@ -320,15 +494,15 @@ export default function RulesPage() {
         shippingForm,
         editingShippingRuleId ? 'Kargo kuralı güncellendi' : 'Kargo kuralı eklendi'
       );
-      setShippingForm(emptyShippingRule);
-      setEditingShippingRuleId(null);
-    } catch (submitError) {
-      setError(errorMessageFrom(submitError));
+      resetShippingForm();
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
-  async function handleProfitSubmit(event) {
-    event.preventDefault();
+  async function handleProfitSubmit(e) {
+    e.preventDefault();
+
     try {
       await submitForm(
         `${API_URL}/api/rules/profit-targets${editingProfitTargetId ? `/${editingProfitTargetId}` : ''}`,
@@ -336,15 +510,15 @@ export default function RulesPage() {
         profitForm,
         editingProfitTargetId ? 'Kâr hedefi güncellendi' : 'Kâr hedefi eklendi'
       );
-      setProfitForm(emptyProfitTarget);
-      setEditingProfitTargetId(null);
-    } catch (submitError) {
-      setError(errorMessageFrom(submitError));
+      resetProfitForm();
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
-  async function handleExtraSubmit(event) {
-    event.preventDefault();
+  async function handleExtraSubmit(e) {
+    e.preventDefault();
+
     try {
       await submitForm(
         `${API_URL}/api/rules/extra-deductions${editingExtraDeductionId ? `/${editingExtraDeductionId}` : ''}`,
@@ -352,15 +526,14 @@ export default function RulesPage() {
         extraForm,
         editingExtraDeductionId ? 'Ek kesinti güncellendi' : 'Ek kesinti eklendi'
       );
-      setExtraForm(emptyExtraDeduction);
-      setEditingExtraDeductionId(null);
-    } catch (submitError) {
-      setError(errorMessageFrom(submitError));
+      resetExtraForm();
+    } catch (err) {
+      setError(getErrorMessage(err));
     }
   }
 
   if (loading) {
-    return <div style={styles.loading}>Yükleniyor...</div>;
+    return <div style={styles.centered}>Yükleniyor...</div>;
   }
 
   if (!user) {
@@ -370,24 +543,46 @@ export default function RulesPage() {
   return (
     <>
       <Navigation />
-      <main style={styles.page}>
-        <div style={styles.header}>
+
+      <div style={styles.page}>
+        <div style={styles.pageHeader}>
           <div>
-            <h1 style={styles.heading}>⚙️ Kurallar Merkezi</h1>
-            <p style={styles.subheading}>
-              General fallback, pazaryeri bazlı baremler, ek kesintiler ve kâr hedefleri bu ekrandan yönetilir.
+            <h1 style={styles.pageTitle}>⚙️ Kurallar Merkezi</h1>
+            <p style={styles.pageSubtitle}>
+              Genel fallback, pazaryeri bazlı istisnalar, kargo baremleri, kâr hedefleri ve ek kesintiler bu ekrandan yönetilir.
             </p>
           </div>
-          <button type="button" style={styles.refreshButton} onClick={fetchAll}>
-            Yenile
-          </button>
-        </div>
 
-        <ExcelToolbar
-          onExport={handleExport}
-          onImportFile={handleImportFile}
-          onTemplateDownload={handleTemplateDownload}
-        />
+          <div style={styles.toolbar}>
+            <button type="button" onClick={fetchAll} style={styles.secondaryButton} disabled={loadingData || saving}>
+              Yenile
+            </button>
+
+            <button type="button" onClick={handleExport} style={styles.secondaryButton} disabled={loadingData || saving}>
+              Excel Dışa Aktar
+            </button>
+
+            <button type="button" onClick={() => fileInputRef.current?.click()} style={styles.secondaryButton} disabled={loadingData || saving}>
+              Excel İçe Aktar
+            </button>
+
+            <button type="button" onClick={handleTemplateDownload} style={styles.primaryButton} disabled={loadingData || saving}>
+              Şablon İndir
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                handleImport(file);
+              }}
+            />
+          </div>
+        </div>
 
         {error ? <div style={styles.errorBox}>{error}</div> : null}
         {success ? <div style={styles.successBox}>{success}</div> : null}
@@ -395,7 +590,7 @@ export default function RulesPage() {
         <div style={styles.tabs}>
           {[
             ['marketplace', 'Pazaryeri Kuralları'],
-            ['shipping', 'Kargo Baremleri'],
+            ['shipping', 'Kargo Kuralları'],
             ['profit', 'Kâr Hedefleri'],
             ['deductions', 'Ek Kesintiler'],
           ].map(([key, label]) => (
@@ -404,8 +599,8 @@ export default function RulesPage() {
               type="button"
               onClick={() => setActiveTab(key)}
               style={{
-                ...styles.tab,
-                ...(activeTab === key ? styles.activeTab : {}),
+                ...styles.tabButton,
+                ...(activeTab === key ? styles.tabButtonActive : {}),
               }}
             >
               {label}
@@ -413,888 +608,946 @@ export default function RulesPage() {
           ))}
         </div>
 
-        {loadingData ? <div style={styles.loadingCard}>Kurallar yükleniyor...</div> : null}
+        {loadingData ? (
+          <div style={styles.centered}>Kurallar yükleniyor...</div>
+        ) : (
+          <>
+            {activeTab === 'marketplace' && (
+              <div style={styles.grid}>
+                <SectionCard title="Pazaryeri Kural Formu">
+                  <form onSubmit={handleMarketplaceSubmit} style={styles.formGrid}>
+                    <Field label="Kapsam">
+                      <SelectInput
+                        value={marketplaceForm.scope_type}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, scope_type: e.target.value }))}
+                      >
+                        <option value="general">General</option>
+                        <option value="marketplace">Pazaryeri</option>
+                        <option value="category">Kategori</option>
+                        <option value="product">Ürün</option>
+                      </SelectInput>
+                    </Field>
 
-        {!loadingData && activeTab === 'marketplace' ? (
-          <div style={styles.sectionGrid}>
-            <Card title={editingMarketplaceRuleId ? 'Pazaryeri Kuralını Düzenle' : 'Yeni Pazaryeri Kuralı'}>
-              <form onSubmit={handleMarketplaceSubmit}>
-                <div style={styles.formGrid}>
-                  <SelectField
-                    label="Kapsam"
-                    value={marketplaceForm.scope_type}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, scope_type: value }))}
-                    options={[
-                      ['general', 'General'],
-                      ['marketplace', 'Pazaryeri'],
-                      ['category', 'Kategori'],
-                      ['product', 'Ürün'],
-                    ]}
-                  />
-                  <SelectField
-                    label="Pazaryeri"
-                    value={marketplaceForm.marketplace_id}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, marketplace_id: value }))}
-                    options={[['', '—'], ...marketplaceOptions]}
-                  />
-                  <SelectField
-                    label="Kategori"
-                    value={marketplaceForm.category_id}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, category_id: value }))}
-                    options={[['', '—'], ...categoryOptions.map((item) => [String(item.id), item.label])]}
-                  />
-                  <SelectField
-                    label="Ürün"
-                    value={marketplaceForm.product_id}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, product_id: value }))}
-                    options={[['', '—'], ...productOptions]}
-                  />
-                  <NumberField
-                    label="Öncelik"
-                    value={marketplaceForm.priority}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, priority: value }))}
-                    step="1"
-                  />
-                  <NumberField
-                    label="Komisyon Oranı"
-                    value={marketplaceForm.commission_rate}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, commission_rate: value }))}
-                  />
-                  <SelectField
-                    label="Komisyon Bazı"
-                    value={marketplaceForm.commission_base}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, commission_base: value }))}
-                    options={[
-                      ['net_ex_vat', 'KDV Hariç'],
-                      ['gross_price', 'Brüt Fiyat'],
-                    ]}
-                  />
-                  <NumberField
-                    label="KDV Oranı"
-                    value={marketplaceForm.vat_rate}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, vat_rate: value }))}
-                  />
-                  <NumberField
-                    label="Sabit Ücret"
-                    value={marketplaceForm.fixed_fee}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, fixed_fee: value }))}
-                  />
-                  <NumberField
-                    label="Min. Marj %"
-                    value={marketplaceForm.min_margin_rate}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, min_margin_rate: value }))}
-                  />
-                  <NumberField
-                    label="Hedef Marj %"
-                    value={marketplaceForm.target_margin_rate}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, target_margin_rate: value }))}
-                  />
-                  <NumberField
-                    label="Pazaryeri İndirim %"
-                    value={marketplaceForm.marketplace_discount_rate}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, marketplace_discount_rate: value }))}
-                  />
-                  <NumberField
-                    label="Yuvarlama Sonu"
-                    value={marketplaceForm.rounding_ending}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, rounding_ending: value }))}
-                  />
-                  <CheckboxField
-                    label="Pazaryeri indirimi fonluyor"
-                    checked={Boolean(marketplaceForm.marketplace_discount_funded)}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, marketplace_discount_funded: value }))}
-                  />
-                  <CheckboxField
-                    label="Aktif"
-                    checked={Boolean(marketplaceForm.is_active)}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, is_active: value }))}
-                  />
-                  <TextAreaField
-                    label="Notlar"
-                    value={marketplaceForm.notes}
-                    onChange={(value) => setMarketplaceForm((current) => ({ ...current, notes: value }))}
-                    full
-                  />
-                </div>
-                <FormActions
-                  submitLabel={editingMarketplaceRuleId ? 'Güncelle' : 'Kaydet'}
-                  onReset={() => {
-                    setMarketplaceForm(emptyMarketplaceRule);
-                    setEditingMarketplaceRuleId(null);
-                  }}
-                />
-              </form>
-            </Card>
+                    <Field label="Pazaryeri">
+                      <SelectInput
+                        value={marketplaceForm.marketplace_id}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {marketplaces.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.marketplace_name}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
 
-            <Card title="Pazaryeri Kuralları Listesi">
-              <SimpleTable
-                headers={[
-                  'Kapsam',
-                  'Pazaryeri',
-                  'Kategori',
-                  'Ürün',
-                  'Komisyon',
-                  'Min. Marj',
-                  'Hedef Marj',
-                  'İndirim',
-                  'Aktif',
-                  'İşlemler',
-                ]}
-                rows={marketplaceRules.map((row) => [
-                  row.scope_type,
-                  row.marketplace_name || 'General',
-                  row.category_name || '—',
-                  row.product_name || '—',
-                  formatPercent(row.commission_rate),
-                  formatPercent(row.min_margin_rate ?? row.minimum_profit_margin),
-                  formatPercent(row.target_margin_rate ?? row.target_profit_margin),
-                  formatPercent(row.marketplace_discount_rate),
-                  boolText(row.is_active),
-                  <ActionButtons
-                    key={`marketplace-${row.id}`}
-                    onEdit={() => {
-                      setEditingMarketplaceRuleId(row.id);
-                      setMarketplaceForm({
-                        ...emptyMarketplaceRule,
-                        ...row,
-                        marketplace_id: row.marketplace_id ? String(row.marketplace_id) : '',
-                        category_id: row.category_id ? String(row.category_id) : '',
-                        product_id: row.product_id ? String(row.product_id) : '',
-                      });
-                    }}
-                    onDelete={async () => {
-                      try {
-                        await deleteRule(`${API_URL}/api/rules/marketplace/${row.id}`, 'Pazaryeri kuralı silindi');
-                      } catch (deleteError) {
-                        setError(errorMessageFrom(deleteError));
-                      }
-                    }}
-                  />,
-                ])}
-                emptyText="Henüz pazaryeri kuralı yok."
-              />
-            </Card>
-          </div>
-        ) : null}
+                    <Field label="Kategori">
+                      <SelectInput
+                        value={marketplaceForm.category_id}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {categoryOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
 
-        {!loadingData && activeTab === 'shipping' ? (
-          <div style={styles.sectionGrid}>
-            <Card title={editingShippingRuleId ? 'Kargo Kuralını Düzenle' : 'Yeni Kargo Kuralı'}>
-              <div style={styles.infoBox}>
-                <strong>Kargo Kuralları Nasıl Çalışır?</strong>
-                <div style={{ marginTop: 8 }}>
-                  Bu ekranda fiyat ve desi aralıklarına göre kargo maliyeti tanımlanır.
-                  Bir ürün için birden fazla kural eşleşirse <strong>öncelik değeri küçük olan</strong> kural uygulanır.
-                  Yani <strong>1</strong>, <strong>5</strong>'ten önce çalışır.
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  Ücretsiz kargo koruması açıksa sistem sadece tek ürünü değil, seçilen adet senaryolarını da kontrol eder.
-                  Örneğin müşteri 2 adet alınca sipariş ücretsiz kargoya geçiyor ve toplam kâr düşüyorsa,
-                  sistem fiyatı korumaya alır veya uyarı üretir.
-                </div>
+                    <Field label="Ürün">
+                      <SelectInput
+                        value={marketplaceForm.product_id}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, product_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {productOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Öncelik">
+                      <TextInput
+                        type="number"
+                        value={marketplaceForm.priority}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Komisyon Oranı (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.commission_rate}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, commission_rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Komisyon Bazı">
+                      <SelectInput
+                        value={marketplaceForm.commission_base}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, commission_base: e.target.value }))}
+                      >
+                        <option value="net_ex_vat">KDV Hariç Net</option>
+                        <option value="gross_price">Brüt Fiyat</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="KDV Oranı (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.vat_rate}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, vat_rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Sabit Ücret">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.fixed_fee}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, fixed_fee: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Pazaryeri İndirim Oranı (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.marketplace_discount_rate}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({ ...prev, marketplace_discount_rate: normalizeNumber(e.target.value) }))
+                        }
+                      />
+                    </Field>
+
+                    <Field label="Pazaryeri İndirimi Fonluyor mu?">
+                      <SelectInput
+                        value={marketplaceForm.marketplace_discount_funded ? '1' : '0'}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({
+                            ...prev,
+                            marketplace_discount_funded: e.target.value === '1',
+                          }))
+                        }
+                      >
+                        <option value="0">Hayır</option>
+                        <option value="1">Evet</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Yuvarlama Sonu">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.rounding_ending}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, rounding_ending: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Min Marj (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.min_margin_rate}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, min_margin_rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Hedef Marj (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={marketplaceForm.target_margin_rate}
+                        onChange={(e) =>
+                          setMarketplaceForm((prev) => ({ ...prev, target_margin_rate: normalizeNumber(e.target.value) }))
+                        }
+                      />
+                    </Field>
+
+                    <Field label="Aktif mi">
+                      <SelectInput
+                        value={marketplaceForm.is_active ? '1' : '0'}
+                        onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                      >
+                        <option value="1">Evet</option>
+                        <option value="0">Hayır</option>
+                      </SelectInput>
+                    </Field>
+
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <Field label="Not">
+                        <TextArea
+                          rows={3}
+                          value={marketplaceForm.notes}
+                          onChange={(e) => setMarketplaceForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={styles.formActions}>
+                      <button type="submit" style={styles.primaryButton} disabled={saving}>
+                        {editingMarketplaceRuleId ? 'Güncelle' : 'Kaydet'}
+                      </button>
+                      <button type="button" style={styles.secondaryButton} onClick={resetMarketplaceForm} disabled={saving}>
+                        Temizle
+                      </button>
+                    </div>
+                  </form>
+                </SectionCard>
+
+                <SectionCard title="Pazaryeri Kuralları Listesi">
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Kapsam</th>
+                          <th>Pazaryeri</th>
+                          <th>Kategori</th>
+                          <th>Ürün</th>
+                          <th>Komisyon</th>
+                          <th>Min Marj</th>
+                          <th>Hedef Marj</th>
+                          <th>Aktif</th>
+                          <th>İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {marketplaceRules.map((rule) => (
+                          <tr key={rule.id}>
+                            <td>{rule.scope_type || 'general'}</td>
+                            <td>{rule.marketplace_name || 'General'}</td>
+                            <td>{rule.category_name || '—'}</td>
+                            <td>{rule.product_stock_code ? `${rule.product_stock_code} - ${rule.product_name || ''}` : (rule.product_name || '—')}</td>
+                            <td>{rule.commission_rate ?? 0}</td>
+                            <td>{rule.min_margin_rate ?? rule.minimum_profit_margin ?? 0}</td>
+                            <td>{rule.target_margin_rate ?? rule.target_profit_margin ?? 0}</td>
+                            <td>{formatBool(rule.is_active)}</td>
+                            <td>
+                              <div style={styles.rowActions}>
+                                <button type="button" style={styles.linkButton} onClick={() => startEditMarketplaceRule(rule)}>
+                                  Düzenle
+                                </button>
+                                <button
+                                  type="button"
+                                  style={styles.linkDangerButton}
+                                  onClick={() =>
+                                    deleteRule(`${API_URL}/api/rules/marketplace/${rule.id}`, 'Pazaryeri kuralı silindi')
+                                      .catch((err) => setError(getErrorMessage(err)))
+                                  }
+                                >
+                                  Sil
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {marketplaceRules.length === 0 && (
+                          <tr>
+                            <td colSpan={9} style={styles.emptyCell}>Kayıt yok</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
               </div>
-              <form onSubmit={handleShippingSubmit}>
-                <div style={styles.formGrid}>
-                  <SelectField
-                    label="Kapsam"
-                    value={shippingForm.scope_type}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, scope_type: value }))}
-                    options={[
-                      ['general', 'General'],
-                      ['marketplace', 'Pazaryeri'],
-                    ]}
-                  />
-                  <SelectField
-                    label="Pazaryeri"
-                    value={shippingForm.marketplace_id}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, marketplace_id: value }))}
-                    options={[['', '—'], ...marketplaceOptions]}
-                  />
-                  <NumberField
-                    label="Min. Fiyat"
-                    value={shippingForm.min_price}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, min_price: value }))}
-                  />
-                  <NumberField
-                    label="Max. Fiyat"
-                    value={shippingForm.max_price}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, max_price: value }))}
-                  />
-                  <NumberField
-                    label="Min. Desi"
-                    value={shippingForm.min_desi}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, min_desi: value }))}
-                  />
-                  <NumberField
-                    label="Max. Desi"
-                    value={shippingForm.max_desi}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, max_desi: value }))}
-                  />
-                  <NumberField
-                    label="Kargo Maliyeti"
-                    value={shippingForm.shipping_cost}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, shipping_cost: value }))}
-                  />
-                  <NumberField
-                    label="Öncelik"
-                    value={shippingForm.priority}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, priority: value }))}
-                    step="1"
-                  />
-                  <CheckboxField
-                    label="Ücretsiz Kargo Aktif"
-                    checked={Boolean(shippingForm.free_shipping_enabled)}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_enabled: value }))}
-                  />
-                  <NumberField
-                    label="Ücretsiz Kargo Eşiği"
-                    value={shippingForm.free_shipping_threshold}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_threshold: value }))}
-                  />
-                  <SelectField
-                    label="Karşılama Tipi"
-                    value={shippingForm.free_shipping_funding_type}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_funding_type: value }))}
-                    options={[
-                      ['seller', 'Satıcı Karşılıyor'],
-                      ['marketplace', 'Pazaryeri Karşılıyor'],
-                      ['shared', 'Paylaşımlı'],
-                    ]}
-                  />
-                  <NumberField
-                    label="Pazaryeri Destek Tutarı"
-                    value={shippingForm.free_shipping_marketplace_support}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, free_shipping_marketplace_support: value }))}
-                  />
-                  <CheckboxField
-                    label="Çoklu Adet Kârlılık Kontrolü"
-                    checked={Boolean(shippingForm.multi_qty_profit_protection)}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, multi_qty_profit_protection: value }))}
-                  />
-                  <TextField
-                    label="Kontrol Edilecek Adetler"
-                    value={shippingForm.profit_check_quantities}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_check_quantities: value }))}
-                  />
-                  <SelectField
-                    label="Güvenlik Tampon Tipi"
-                    value={shippingForm.profit_safety_buffer_type}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_safety_buffer_type: value }))}
-                    options={[
-                      ['fixed', 'Sabit Tutar'],
-                      ['percent', 'Yüzde'],
-                    ]}
-                  />
-                  <NumberField
-                    label="Güvenlik Tampon Değeri"
-                    value={shippingForm.profit_safety_buffer_value}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, profit_safety_buffer_value: value }))}
-                  />
-                  <SelectField
-                    label="Zarar Önleme Modu"
-                    value={shippingForm.loss_prevention_mode}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, loss_prevention_mode: value }))}
-                    options={[
-                      ['block_loss', 'Zararı Engelle'],
-                      ['warn_only', 'Sadece Uyar'],
-                      ['ignore', 'Yok Say'],
-                    ]}
-                  />
-                  <CheckboxField
-                    label="Aktif"
-                    checked={Boolean(shippingForm.is_active)}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, is_active: value }))}
-                  />
-                  <TextAreaField
-                    label="Notlar"
-                    value={shippingForm.notes}
-                    onChange={(value) => setShippingForm((current) => ({ ...current, notes: value }))}
-                    full
-                  />
-                </div>
-                <FormActions
-                  submitLabel={editingShippingRuleId ? 'Güncelle' : 'Kaydet'}
-                  onReset={() => {
-                    setShippingForm(emptyShippingRule);
-                    setEditingShippingRuleId(null);
-                  }}
-                />
-              </form>
-            </Card>
+            )}
 
-            <Card title="Kargo Baremleri">
-              <SimpleTable
-                headers={[
-                  'Kapsam',
-                  'Pazaryeri',
-                  'Min. Fiyat',
-                  'Max. Fiyat',
-                  'Min. Desi',
-                  'Max. Desi',
-                  'Kargo',
-                  'Öncelik',
-                  'Ücretsiz Kargo',
-                  'Eşik',
-                  'Karşılama',
-                  'Kontrol Adetleri',
-                  'Aktif',
-                  'İşlemler',
-                ]}
-                rows={shippingRules.map((row) => [
-                  row.scope_type,
-                  row.marketplace_name || 'General',
-                  row.min_price,
-                  row.max_price ?? '—',
-                  row.min_desi ?? 0,
-                  row.max_desi ?? '—',
-                  row.shipping_cost,
-                  row.priority,
-                  boolText(row.free_shipping_enabled),
-                  row.free_shipping_threshold ?? '—',
-                  row.free_shipping_funding_type || 'seller',
-                  row.profit_check_quantities || '1,2',
-                  boolText(row.is_active),
-                  <ActionButtons
-                    key={`shipping-${row.id}`}
-                    onEdit={() => {
-                      setEditingShippingRuleId(row.id);
-                      setShippingForm({
-                        ...emptyShippingRule,
-                        ...row,
-                        marketplace_id: row.marketplace_id ? String(row.marketplace_id) : '',
-                      });
-                    }}
-                    onDelete={async () => {
-                      try {
-                        await deleteRule(`${API_URL}/api/rules/shipping/${row.id}`, 'Kargo kuralı silindi');
-                      } catch (deleteError) {
-                        setError(errorMessageFrom(deleteError));
-                      }
-                    }}
-                  />,
-                ])}
-                emptyText="Henüz kargo kuralı yok."
-              />
-            </Card>
-          </div>
-        ) : null}
+            {activeTab === 'shipping' && (
+              <div style={styles.grid}>
+                <SectionCard
+                  title="Kargo Kural Formu"
+                  right={
+                    <div
+                      style={styles.infoWrap}
+                      onMouseEnter={() => setShowShippingHelp(true)}
+                      onMouseLeave={() => setShowShippingHelp(false)}
+                    >
+                      <button
+                        type="button"
+                        style={styles.infoButton}
+                        onClick={() => setShowShippingHelp((prev) => !prev)}
+                      >
+                        i
+                      </button>
+                      {showShippingHelp && (
+                        <div style={styles.infoPopover}>
+                          Sistem önce pazaryerine özel kargo kurallarını kontrol eder.
+                          Uygun kayıt bulunamazsa genel kuralları uygular.
+                          Eşleşme hem fiyat aralığına hem desi aralığına göre yapılır.
+                          Pazaryeri boş bırakılırsa kayıt genel kural kabul edilir.
+                        </div>
+                      )}
+                    </div>
+                  }
+                >
+                  <form onSubmit={handleShippingSubmit} style={styles.formGrid}>
+                    <Field
+                      label="Pazaryeri"
+                      hint="Boş bırakılırsa genel kural olarak değerlendirilir."
+                    >
+                      <SelectInput
+                        value={shippingForm.marketplace_id}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                      >
+                        <option value="">Genel</option>
+                        {marketplaces.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.marketplace_name}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
 
-        {!loadingData && activeTab === 'profit' ? (
-          <div style={styles.sectionGrid}>
-            <Card title={editingProfitTargetId ? 'Kâr Hedefini Düzenle' : 'Yeni Kâr Hedefi'}>
-              <form onSubmit={handleProfitSubmit}>
-                <div style={styles.formGrid}>
-                  <SelectField
-                    label="Kapsam"
-                    value={profitForm.scope_type}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, scope_type: value }))}
-                    options={[
-                      ['general', 'General'],
-                      ['marketplace', 'Pazaryeri'],
-                      ['category', 'Kategori'],
-                      ['product', 'Ürün'],
-                    ]}
-                  />
-                  <SelectField
-                    label="Pazaryeri"
-                    value={profitForm.marketplace_id}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, marketplace_id: value }))}
-                    options={[['', '—'], ...marketplaceOptions]}
-                  />
-                  <SelectField
-                    label="Kategori"
-                    value={profitForm.category_id}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, category_id: value }))}
-                    options={[['', '—'], ...categoryOptions.map((item) => [String(item.id), item.label])]}
-                  />
-                  <SelectField
-                    label="Ürün"
-                    value={profitForm.product_id}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, product_id: value }))}
-                    options={[['', '—'], ...productOptions]}
-                  />
-                  <NumberField
-                    label="Min. Marj %"
-                    value={profitForm.min_margin_rate}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, min_margin_rate: value }))}
-                  />
-                  <NumberField
-                    label="Hedef Marj %"
-                    value={profitForm.target_margin_rate}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, target_margin_rate: value }))}
-                  />
-                  <NumberField
-                    label="Öncelik"
-                    value={profitForm.priority}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, priority: value }))}
-                    step="1"
-                  />
-                  <CheckboxField
-                    label="Aktif"
-                    checked={Boolean(profitForm.is_active)}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, is_active: value }))}
-                  />
-                  <TextAreaField
-                    label="Notlar"
-                    value={profitForm.notes}
-                    onChange={(value) => setProfitForm((current) => ({ ...current, notes: value }))}
-                    full
-                  />
-                </div>
-                <FormActions
-                  submitLabel={editingProfitTargetId ? 'Güncelle' : 'Kaydet'}
-                  onReset={() => {
-                    setProfitForm(emptyProfitTarget);
-                    setEditingProfitTargetId(null);
-                  }}
-                />
-              </form>
-            </Card>
+                    <Field label="Min Tutar (TL)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={shippingForm.min_price}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, min_price: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
 
-            <Card title="Kâr Hedefleri Listesi">
-              <SimpleTable
-                headers={['Kapsam', 'Pazaryeri', 'Kategori', 'Ürün', 'Min. Marj', 'Hedef Marj', 'Aktif', 'İşlemler']}
-                rows={profitTargets.map((row) => [
-                  row.scope_type,
-                  row.marketplace_name || 'General',
-                  row.category_name || '—',
-                  row.product_name || '—',
-                  formatPercent(row.min_margin_rate ?? row.min_profit_margin),
-                  formatPercent(row.target_margin_rate ?? row.target_profit_margin),
-                  boolText(row.is_active),
-                  <ActionButtons
-                    key={`profit-${row.id}`}
-                    onEdit={() => {
-                      setEditingProfitTargetId(row.id);
-                      setProfitForm({
-                        ...emptyProfitTarget,
-                        ...row,
-                        marketplace_id: row.marketplace_id ? String(row.marketplace_id) : '',
-                        category_id: row.category_id ? String(row.category_id) : '',
-                        product_id: row.product_id ? String(row.product_id) : '',
-                      });
-                    }}
-                    onDelete={async () => {
-                      try {
-                        await deleteRule(`${API_URL}/api/rules/profit-targets/${row.id}`, 'Kâr hedefi silindi');
-                      } catch (deleteError) {
-                        setError(errorMessageFrom(deleteError));
-                      }
-                    }}
-                  />,
-                ])}
-                emptyText="Henüz kâr hedefi yok."
-              />
-            </Card>
-          </div>
-        ) : null}
+                    <Field label="Max Tutar (TL)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={shippingForm.max_price}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, max_price: normalizeNumber(e.target.value) }))}
+                        placeholder="Boş = üst sınır yok"
+                      />
+                    </Field>
 
-        {!loadingData && activeTab === 'deductions' ? (
-          <div style={styles.sectionGrid}>
-            <Card title={editingExtraDeductionId ? 'Ek Kesintiyi Düzenle' : 'Yeni Ek Kesinti'}>
-              <form onSubmit={handleExtraSubmit}>
-                <div style={styles.formGrid}>
-                  <SelectField
-                    label="Pazaryeri Kuralı"
-                    value={extraForm.marketplace_rule_id}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, marketplace_rule_id: value }))}
-                    options={[
-                      ['', '—'],
-                      ...marketplaceRules.map((rule) => [
-                        String(rule.id),
-                        `#${rule.id} ${rule.scope_type} / ${rule.marketplace_name || 'General'}`,
-                      ]),
-                    ]}
-                  />
-                  <TextField
-                    label="Ad"
-                    value={extraForm.name}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, name: value }))}
-                  />
-                  <SelectField
-                    label="Kesinti Tipi"
-                    value={extraForm.deduction_type}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, deduction_type: value }))}
-                    options={[
-                      ['withholding', 'Stopaj'],
-                      ['service_fee', 'Hizmet Bedeli'],
-                      ['campaign_fee', 'Kampanya Katkısı'],
-                      ['other', 'Diğer'],
-                    ]}
-                  />
-                  <SelectField
-                    label="Hesaplama Tipi"
-                    value={extraForm.calculation_type}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, calculation_type: value }))}
-                    options={[
-                      ['percentage', 'Yüzde'],
-                      ['fixed', 'Sabit Tutar'],
-                    ]}
-                  />
-                  <SelectField
-                    label="Baz Tutar Tipi"
-                    value={extraForm.base_amount_type}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, base_amount_type: value }))}
-                    options={[
-                      ['net_ex_vat', 'KDV Hariç'],
-                      ['gross_price', 'Brüt Fiyat'],
-                      ['net_after_commission', 'Komisyon Sonrası'],
-                    ]}
-                  />
-                  <NumberField
-                    label="Oran"
-                    value={extraForm.rate}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, rate: value }))}
-                  />
-                  <NumberField
-                    label="Sabit Tutar"
-                    value={extraForm.fixed_amount}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, fixed_amount: value }))}
-                  />
-                  <NumberField
-                    label="Öncelik"
-                    value={extraForm.priority}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, priority: value }))}
-                    step="1"
-                  />
-                  <CheckboxField
-                    label="Aktif"
-                    checked={Boolean(extraForm.is_active)}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, is_active: value }))}
-                  />
-                  <TextAreaField
-                    label="Notlar"
-                    value={extraForm.notes}
-                    onChange={(value) => setExtraForm((current) => ({ ...current, notes: value }))}
-                    full
-                  />
-                </div>
-                <FormActions
-                  submitLabel={editingExtraDeductionId ? 'Güncelle' : 'Kaydet'}
-                  onReset={() => {
-                    setExtraForm(emptyExtraDeduction);
-                    setEditingExtraDeductionId(null);
-                  }}
-                />
-              </form>
-            </Card>
+                    <Field label="Min Desi">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={shippingForm.min_desi}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, min_desi: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
 
-            <Card title="Ek Kesintiler Listesi">
-              <SimpleTable
-                headers={['Ad', 'Kural', 'Hesaplama', 'Baz', 'Oran', 'Sabit', 'Aktif', 'İşlemler']}
-                rows={extraDeductions.map((row) => [
-                  row.name,
-                  `${row.marketplace_rule_scope || '—'} / ${row.marketplace_name || 'General'}`,
-                  row.calculation_type,
-                  row.base_amount_type,
-                  row.rate,
-                  row.fixed_amount,
-                  boolText(row.is_active),
-                  <ActionButtons
-                    key={`deduction-${row.id}`}
-                    onEdit={() => {
-                      setEditingExtraDeductionId(row.id);
-                      setExtraForm({
-                        ...emptyExtraDeduction,
-                        ...row,
-                        marketplace_rule_id: row.marketplace_rule_id ? String(row.marketplace_rule_id) : '',
-                      });
-                    }}
-                    onDelete={async () => {
-                      try {
-                        await deleteRule(`${API_URL}/api/rules/extra-deductions/${row.id}`, 'Ek kesinti silindi');
-                      } catch (deleteError) {
-                        setError(errorMessageFrom(deleteError));
-                      }
-                    }}
-                  />,
-                ])}
-                emptyText="Henüz ek kesinti yok."
-              />
-            </Card>
-          </div>
-        ) : null}
-      </main>
+                    <Field label="Max Desi">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={shippingForm.max_desi}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, max_desi: normalizeNumber(e.target.value) }))}
+                        placeholder="Boş = üst sınır yok"
+                      />
+                    </Field>
+
+                    <Field label="Kargo Ücreti (TL)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={shippingForm.shipping_cost}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, shipping_cost: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Aktif mi">
+                      <SelectInput
+                        value={shippingForm.is_active ? '1' : '0'}
+                        onChange={(e) => setShippingForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                      >
+                        <option value="1">Evet</option>
+                        <option value="0">Hayır</option>
+                      </SelectInput>
+                    </Field>
+
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <Field label="Not">
+                        <TextArea
+                          rows={3}
+                          value={shippingForm.notes}
+                          onChange={(e) => setShippingForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={styles.formActions}>
+                      <button type="submit" style={styles.primaryButton} disabled={saving}>
+                        {editingShippingRuleId ? 'Güncelle' : 'Kaydet'}
+                      </button>
+                      <button type="button" style={styles.secondaryButton} onClick={resetShippingForm} disabled={saving}>
+                        Temizle
+                      </button>
+                    </div>
+                  </form>
+                </SectionCard>
+
+                <SectionCard title="Kargo Kuralları Listesi">
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Pazaryeri</th>
+                          <th>Min Tutar</th>
+                          <th>Max Tutar</th>
+                          <th>Min Desi</th>
+                          <th>Max Desi</th>
+                          <th>Kargo Ücreti</th>
+                          <th>Aktif</th>
+                          <th>İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shippingRules.map((rule) => (
+                          <tr key={rule.id}>
+                            <td>{rule.marketplace_name || 'Genel'}</td>
+                            <td>{rule.min_price ?? 0}</td>
+                            <td>{rule.max_price ?? '—'}</td>
+                            <td>{rule.min_desi ?? 0}</td>
+                            <td>{rule.max_desi ?? '—'}</td>
+                            <td>{rule.shipping_cost ?? 0}</td>
+                            <td>{formatBool(rule.is_active)}</td>
+                            <td>
+                              <div style={styles.rowActions}>
+                                <button type="button" style={styles.linkButton} onClick={() => startEditShippingRule(rule)}>
+                                  Düzenle
+                                </button>
+                                <button
+                                  type="button"
+                                  style={styles.linkDangerButton}
+                                  onClick={() =>
+                                    deleteRule(`${API_URL}/api/rules/shipping/${rule.id}`, 'Kargo kuralı silindi')
+                                      .catch((err) => setError(getErrorMessage(err)))
+                                  }
+                                >
+                                  Sil
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {shippingRules.length === 0 && (
+                          <tr>
+                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              </div>
+            )}
+
+            {activeTab === 'profit' && (
+              <div style={styles.grid}>
+                <SectionCard title="Kâr Hedefi Formu">
+                  <form onSubmit={handleProfitSubmit} style={styles.formGrid}>
+                    <Field label="Kapsam">
+                      <SelectInput
+                        value={profitForm.scope_type}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, scope_type: e.target.value }))}
+                      >
+                        <option value="general">General</option>
+                        <option value="marketplace">Pazaryeri</option>
+                        <option value="category">Kategori</option>
+                        <option value="product">Ürün</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Pazaryeri">
+                      <SelectInput
+                        value={profitForm.marketplace_id}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, marketplace_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {marketplaces.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.marketplace_name}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Kategori">
+                      <SelectInput
+                        value={profitForm.category_id}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, category_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {categoryOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Ürün">
+                      <SelectInput
+                        value={profitForm.product_id}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, product_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {productOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Öncelik">
+                      <TextInput
+                        type="number"
+                        value={profitForm.priority}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Min Marj (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={profitForm.min_margin_rate}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, min_margin_rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Hedef Marj (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={profitForm.target_margin_rate}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, target_margin_rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Aktif mi">
+                      <SelectInput
+                        value={profitForm.is_active ? '1' : '0'}
+                        onChange={(e) => setProfitForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                      >
+                        <option value="1">Evet</option>
+                        <option value="0">Hayır</option>
+                      </SelectInput>
+                    </Field>
+
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <Field label="Not">
+                        <TextArea
+                          rows={3}
+                          value={profitForm.notes}
+                          onChange={(e) => setProfitForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={styles.formActions}>
+                      <button type="submit" style={styles.primaryButton} disabled={saving}>
+                        {editingProfitTargetId ? 'Güncelle' : 'Kaydet'}
+                      </button>
+                      <button type="button" style={styles.secondaryButton} onClick={resetProfitForm} disabled={saving}>
+                        Temizle
+                      </button>
+                    </div>
+                  </form>
+                </SectionCard>
+
+                <SectionCard title="Kâr Hedefleri Listesi">
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Kapsam</th>
+                          <th>Pazaryeri</th>
+                          <th>Kategori</th>
+                          <th>Ürün</th>
+                          <th>Min Marj</th>
+                          <th>Hedef Marj</th>
+                          <th>Aktif</th>
+                          <th>İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profitTargets.map((rule) => (
+                          <tr key={rule.id}>
+                            <td>{rule.scope_type || 'general'}</td>
+                            <td>{rule.marketplace_name || 'General'}</td>
+                            <td>{rule.category_name || '—'}</td>
+                            <td>{rule.product_stock_code ? `${rule.product_stock_code} - ${rule.product_name || ''}` : (rule.product_name || '—')}</td>
+                            <td>{rule.min_margin_rate ?? rule.min_profit_margin ?? 0}</td>
+                            <td>{rule.target_margin_rate ?? rule.target_profit_margin ?? 0}</td>
+                            <td>{formatBool(rule.is_active)}</td>
+                            <td>
+                              <div style={styles.rowActions}>
+                                <button type="button" style={styles.linkButton} onClick={() => startEditProfitTarget(rule)}>
+                                  Düzenle
+                                </button>
+                                <button
+                                  type="button"
+                                  style={styles.linkDangerButton}
+                                  onClick={() =>
+                                    deleteRule(`${API_URL}/api/rules/profit-targets/${rule.id}`, 'Kâr hedefi silindi')
+                                      .catch((err) => setError(getErrorMessage(err)))
+                                  }
+                                >
+                                  Sil
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {profitTargets.length === 0 && (
+                          <tr>
+                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              </div>
+            )}
+
+            {activeTab === 'deductions' && (
+              <div style={styles.grid}>
+                <SectionCard title="Ek Kesinti Formu">
+                  <form onSubmit={handleExtraSubmit} style={styles.formGrid}>
+                    <Field label="Pazaryeri Kuralı">
+                      <SelectInput
+                        value={extraForm.marketplace_rule_id}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, marketplace_rule_id: e.target.value }))}
+                      >
+                        <option value="">Seçiniz</option>
+                        {marketplaceRuleOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Ad">
+                      <TextInput
+                        value={extraForm.name}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, name: e.target.value }))}
+                      />
+                    </Field>
+
+                    <Field label="Kesinti Tipi">
+                      <SelectInput
+                        value={extraForm.deduction_type}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, deduction_type: e.target.value }))}
+                      >
+                        <option value="withholding">Stopaj</option>
+                        <option value="other">Diğer</option>
+                        <option value="service">Hizmet</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Hesaplama Tipi">
+                      <SelectInput
+                        value={extraForm.calculation_type}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, calculation_type: e.target.value }))}
+                      >
+                        <option value="percentage">Yüzde</option>
+                        <option value="fixed">Sabit</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Baz Tutar Tipi">
+                      <SelectInput
+                        value={extraForm.base_amount_type}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, base_amount_type: e.target.value }))}
+                      >
+                        <option value="net_ex_vat">Net (KDV Hariç)</option>
+                        <option value="gross_price">Brüt Fiyat</option>
+                        <option value="net_after_commission">Komisyon Sonrası Net</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Oran (%)">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={extraForm.rate}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, rate: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Sabit Tutar">
+                      <TextInput
+                        type="number"
+                        step="0.01"
+                        value={extraForm.fixed_amount}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, fixed_amount: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Öncelik">
+                      <TextInput
+                        type="number"
+                        value={extraForm.priority}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, priority: normalizeNumber(e.target.value) }))}
+                      />
+                    </Field>
+
+                    <Field label="Aktif mi">
+                      <SelectInput
+                        value={extraForm.is_active ? '1' : '0'}
+                        onChange={(e) => setExtraForm((prev) => ({ ...prev, is_active: e.target.value === '1' }))}
+                      >
+                        <option value="1">Evet</option>
+                        <option value="0">Hayır</option>
+                      </SelectInput>
+                    </Field>
+
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <Field label="Not">
+                        <TextArea
+                          rows={3}
+                          value={extraForm.notes}
+                          onChange={(e) => setExtraForm((prev) => ({ ...prev, notes: e.target.value }))}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={styles.formActions}>
+                      <button type="submit" style={styles.primaryButton} disabled={saving}>
+                        {editingExtraDeductionId ? 'Güncelle' : 'Kaydet'}
+                      </button>
+                      <button type="button" style={styles.secondaryButton} onClick={resetExtraForm} disabled={saving}>
+                        Temizle
+                      </button>
+                    </div>
+                  </form>
+                </SectionCard>
+
+                <SectionCard title="Ek Kesintiler Listesi">
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Ad</th>
+                          <th>Kural</th>
+                          <th>Tip</th>
+                          <th>Hesaplama</th>
+                          <th>Oran</th>
+                          <th>Sabit</th>
+                          <th>Aktif</th>
+                          <th>İşlem</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {extraDeductions.map((rule) => (
+                          <tr key={rule.id}>
+                            <td>{rule.name || '—'}</td>
+                            <td>{rule.marketplace_name || rule.marketplace_rule_scope || '—'}</td>
+                            <td>{rule.deduction_type || '—'}</td>
+                            <td>{rule.calculation_type || '—'}</td>
+                            <td>{rule.rate ?? 0}</td>
+                            <td>{rule.fixed_amount ?? 0}</td>
+                            <td>{formatBool(rule.is_active)}</td>
+                            <td>
+                              <div style={styles.rowActions}>
+                                <button type="button" style={styles.linkButton} onClick={() => startEditExtraDeduction(rule)}>
+                                  Düzenle
+                                </button>
+                                <button
+                                  type="button"
+                                  style={styles.linkDangerButton}
+                                  onClick={() =>
+                                    deleteRule(`${API_URL}/api/rules/extra-deductions/${rule.id}`, 'Ek kesinti silindi')
+                                      .catch((err) => setError(getErrorMessage(err)))
+                                  }
+                                >
+                                  Sil
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {extraDeductions.length === 0 && (
+                          <tr>
+                            <td colSpan={8} style={styles.emptyCell}>Kayıt yok</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </SectionCard>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </>
   );
 }
 
-function Card({ title, children }) {
-  return (
-    <section style={styles.card}>
-      <h2 style={styles.cardTitle}>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function TextField({ label, value, onChange, full = false }) {
-  return (
-    <label style={{ ...styles.field, ...(full ? styles.fullWidth : {}) }}>
-      <span>{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} style={styles.input} />
-    </label>
-  );
-}
-
-function NumberField({ label, value, onChange, step = '0.01' }) {
-  return (
-    <label style={styles.field}>
-      <span>{label}</span>
-      <input
-        type="number"
-        step={step}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        style={styles.input}
-      />
-    </label>
-  );
-}
-
-function SelectField({ label, value, onChange, options }) {
-  return (
-    <label style={styles.field}>
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} style={styles.input}>
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={`${label}-${optionValue}`} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function CheckboxField({ label, checked, onChange }) {
-  return (
-    <label style={styles.checkboxField}>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function TextAreaField({ label, value, onChange, full = false }) {
-  return (
-    <label style={{ ...styles.field, ...(full ? styles.fullWidth : {}) }}>
-      <span>{label}</span>
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} style={styles.textarea} rows={3} />
-    </label>
-  );
-}
-
-function FormActions({ submitLabel, onReset }) {
-  return (
-    <div style={styles.formActions}>
-      <button type="submit" style={styles.saveButton}>
-        {submitLabel}
-      </button>
-      <button type="button" style={styles.secondaryButton} onClick={onReset}>
-        Temizle
-      </button>
-    </div>
-  );
-}
-
-function ActionButtons({ onEdit, onDelete }) {
-  return (
-    <div style={styles.rowActions}>
-      <button type="button" style={styles.editButton} onClick={onEdit}>
-        Düzenle
-      </button>
-      <button type="button" style={styles.deleteButton} onClick={onDelete}>
-        Sil
-      </button>
-    </div>
-  );
-}
-
-function SimpleTable({ headers, rows, emptyText }) {
-  if (!rows.length) {
-    return <div style={styles.emptyState}>{emptyText}</div>;
-  }
-
-  return (
-    <div style={styles.tableWrap}>
-      <table style={styles.table}>
-        <thead>
-          <tr>
-            {headers.map((header) => (
-              <th key={header} style={styles.th}>
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr key={`row-${rowIndex}`}>
-              {row.map((cell, cellIndex) => (
-                <td key={`cell-${rowIndex}-${cellIndex}`} style={styles.td}>
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 const styles = {
-  loading: {
-    padding: '40px',
-    textAlign: 'center',
-    fontSize: '18px',
-  },
   page: {
-    padding: '32px',
-    maxWidth: '1500px',
+    padding: '24px',
+    maxWidth: 1600,
     margin: '0 auto',
   },
-  header: {
+  pageHeader: {
     display: 'flex',
     justifyContent: 'space-between',
+    gap: 16,
     alignItems: 'flex-start',
-    gap: '16px',
-    marginBottom: '18px',
-  },
-  heading: {
-    margin: 0,
-    color: '#0f172a',
-    fontSize: '30px',
-  },
-  subheading: {
-    margin: '8px 0 0 0',
-    color: '#64748b',
-    fontSize: '14px',
-  },
-  refreshButton: {
-    padding: '10px 16px',
-    borderRadius: '10px',
-    border: 'none',
-    backgroundColor: '#0f172a',
-    color: '#ffffff',
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  errorBox: {
-    backgroundColor: '#fee2e2',
-    color: '#b91c1c',
-    padding: '12px 16px',
-    borderRadius: '12px',
-    marginBottom: '16px',
-  },
-  successBox: {
-    backgroundColor: '#dcfce7',
-    color: '#166534',
-    padding: '12px 16px',
-    borderRadius: '12px',
-    marginBottom: '16px',
-  },
-  tabs: {
-    display: 'flex',
-    gap: '10px',
+    marginBottom: 20,
     flexWrap: 'wrap',
-    marginBottom: '18px',
   },
-  tab: {
-    padding: '10px 18px',
-    borderRadius: '999px',
-    border: 'none',
-    backgroundColor: '#e2e8f0',
-    color: '#0f172a',
-    cursor: 'pointer',
-    fontWeight: 600,
-  },
-  activeTab: {
-    backgroundColor: '#2563eb',
-    color: '#ffffff',
-  },
-  loadingCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: '24px',
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
-  },
-  sectionGrid: {
-    display: 'grid',
-    gap: '18px',
-  },
-  card: {
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: '20px',
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
-  },
-  cardTitle: {
-    marginTop: 0,
-    marginBottom: '16px',
+  pageTitle: {
+    margin: 0,
+    fontSize: 28,
+    fontWeight: 700,
     color: '#0f172a',
   },
-  formGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '14px',
+  pageSubtitle: {
+    margin: '8px 0 0',
+    color: '#475569',
+    lineHeight: 1.5,
   },
-  field: {
+  toolbar: {
     display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    fontSize: '13px',
-    color: '#334155',
+    gap: 10,
+    flexWrap: 'wrap',
   },
-  checkboxField: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    paddingTop: '28px',
-    color: '#334155',
-    fontSize: '14px',
-  },
-  fullWidth: {
-    gridColumn: '1 / -1',
-  },
-  input: {
-    padding: '10px 12px',
-    borderRadius: '10px',
-    border: '1px solid #cbd5e1',
-    fontSize: '14px',
-    backgroundColor: '#ffffff',
-  },
-  textarea: {
-    padding: '10px 12px',
-    borderRadius: '10px',
-    border: '1px solid #cbd5e1',
-    fontSize: '14px',
-    backgroundColor: '#ffffff',
-    resize: 'vertical',
-  },
-  formActions: {
-    display: 'flex',
-    gap: '10px',
-    marginTop: '16px',
-  },
-  saveButton: {
-    padding: '10px 18px',
+  primaryButton: {
+    height: 40,
+    padding: '0 16px',
+    borderRadius: 10,
     border: 'none',
-    borderRadius: '10px',
-    backgroundColor: '#16a34a',
-    color: '#ffffff',
+    background: '#2563eb',
+    color: '#fff',
     fontWeight: 600,
     cursor: 'pointer',
   },
   secondaryButton: {
-    padding: '10px 18px',
+    height: 40,
+    padding: '0 16px',
+    borderRadius: 10,
     border: '1px solid #cbd5e1',
-    borderRadius: '10px',
-    backgroundColor: '#ffffff',
+    background: '#fff',
     color: '#0f172a',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  errorBox: {
+    padding: 12,
+    borderRadius: 10,
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#b91c1c',
+    marginBottom: 16,
+  },
+  successBox: {
+    padding: 12,
+    borderRadius: 10,
+    background: '#f0fdf4',
+    border: '1px solid #bbf7d0',
+    color: '#166534',
+    marginBottom: 16,
+  },
+  tabs: {
+    display: 'flex',
+    gap: 10,
+    flexWrap: 'wrap',
+    marginBottom: 18,
+  },
+  tabButton: {
+    height: 40,
+    padding: '0 16px',
+    borderRadius: 999,
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#334155',
+    cursor: 'pointer',
+    fontWeight: 600,
+  },
+  tabButtonActive: {
+    background: '#0f172a',
+    color: '#fff',
+    borderColor: '#0f172a',
+  },
+  centered: {
+    padding: 40,
+    textAlign: 'center',
+    color: '#475569',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(360px, 480px) minmax(0, 1fr)',
+    gap: 20,
+    alignItems: 'start',
+  },
+  card: {
+    background: '#fff',
+    border: '1px solid #e2e8f0',
+    borderRadius: 16,
+    padding: 18,
+    boxShadow: '0 8px 30px rgba(15, 23, 42, 0.04)',
+    position: 'relative',
+  },
+  cardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  cardTitle: {
+    margin: 0,
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#0f172a',
+  },
+  formGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 14,
+  },
+  field: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#334155',
+  },
+  fieldHint: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  input: {
+    height: 40,
+    borderRadius: 10,
+    border: '1px solid #cbd5e1',
+    padding: '0 12px',
+    outline: 'none',
+    background: '#fff',
+    color: '#0f172a',
+  },
+  textarea: {
+    minHeight: 86,
+    borderRadius: 10,
+    border: '1px solid #cbd5e1',
+    padding: 12,
+    outline: 'none',
+    resize: 'vertical',
+    background: '#fff',
+    color: '#0f172a',
+  },
+  formActions: {
+    display: 'flex',
+    gap: 10,
+    gridColumn: '1 / -1',
+    marginTop: 4,
   },
   tableWrap: {
     overflowX: 'auto',
@@ -1302,46 +1555,92 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse',
+    fontSize: 14,
   },
-  th: {
-    backgroundColor: '#0f172a',
-    color: '#ffffff',
-    textAlign: 'left',
-    padding: '12px 14px',
-    fontSize: '13px',
-  },
-  td: {
-    padding: '12px 14px',
-    borderBottom: '1px solid #e2e8f0',
-    fontSize: '13px',
-    color: '#0f172a',
-    verticalAlign: 'top',
+  emptyCell: {
+    textAlign: 'center',
+    color: '#64748b',
+    padding: 20,
   },
   rowActions: {
     display: 'flex',
-    gap: '8px',
+    gap: 10,
     flexWrap: 'wrap',
   },
-  editButton: {
-    padding: '8px 12px',
+  linkButton: {
     border: 'none',
-    borderRadius: '8px',
-    backgroundColor: '#f59e0b',
-    color: '#ffffff',
+    background: 'transparent',
+    color: '#2563eb',
+    cursor: 'pointer',
+    padding: 0,
+    fontWeight: 600,
+  },
+  linkDangerButton: {
+    border: 'none',
+    background: 'transparent',
+    color: '#dc2626',
+    cursor: 'pointer',
+    padding: 0,
+    fontWeight: 600,
+  },
+  infoWrap: {
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  infoButton: {
+    width: 28,
+    height: 28,
+    borderRadius: '50%',
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#0f172a',
+    fontWeight: 700,
     cursor: 'pointer',
   },
-  deleteButton: {
-    padding: '8px 12px',
-    border: 'none',
-    borderRadius: '8px',
-    backgroundColor: '#dc2626',
-    color: '#ffffff',
-    cursor: 'pointer',
-  },
-  emptyState: {
-    padding: '18px',
-    borderRadius: '12px',
-    backgroundColor: '#f8fafc',
-    color: '#64748b',
+  infoPopover: {
+    position: 'absolute',
+    top: 34,
+    right: 0,
+    width: 320,
+    padding: 12,
+    borderRadius: 12,
+    border: '1px solid #cbd5e1',
+    background: '#fff',
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 1.5,
+    boxShadow: '0 12px 32px rgba(15, 23, 42, 0.12)',
+    zIndex: 20,
   },
 };
+
+if (typeof window !== 'undefined') {
+  const styleId = 'rules-page-table-style';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.innerHTML = `
+      table th, table td {
+        border-bottom: 1px solid #e2e8f0;
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+        white-space: nowrap;
+      }
+      table thead th {
+        background: #f8fafc;
+        color: #334155;
+        font-weight: 700;
+        position: sticky;
+        top: 0;
+      }
+      @media (max-width: 1200px) {
+        .rules-grid-responsive {
+          grid-template-columns: 1fr !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
