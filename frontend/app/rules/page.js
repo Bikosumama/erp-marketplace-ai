@@ -329,7 +329,6 @@ function getProductDesi(product = {}) {
 
   return 0;
 }
-}
 
 function buildSimulatorDefaults({
   marketplaceId,

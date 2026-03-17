@@ -1,0 +1,3 @@
+#!/bin/sh
+# Commit sonrası otomatik GitHub'a push (kurulum: bu dosyayı .git/hooks/post-commit olarak kopyalayın)
+git push origin main 2>/dev/null || true

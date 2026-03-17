@@ -38,6 +38,13 @@ Trendyol, Hepsiburada, Amazon Türkiye, N11, İdefix ve Pazarama'ya entegre olan
 ### Gereksinimler
 - Node.js 18+
 
+### Otomatik Git push (isteğe bağlı)
+Commit sonrası değişikliklerin otomatik GitHub'a gönderilmesi için proje kökünde:
+- Windows (PowerShell): `copy scripts\git-hooks\post-commit .git\hooks\post-commit`
+- macOS/Linux: `cp scripts/git-hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit`
+
+Bundan sonra her `git commit` sonrası `git push origin main` otomatik çalışır.
+
 ### Backend Kurulumu
 
 ```bash
