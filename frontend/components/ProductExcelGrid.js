@@ -66,6 +66,7 @@ export default function ProductExcelGrid({
       header,
       accessorFn: accessor,
       enableSorting: opts.sorting !== false,
+      size: opts.size ?? 140,
       meta: opts.meta || {},
       cell: opts.cell,
     });
@@ -98,47 +99,74 @@ export default function ProductExcelGrid({
           />
         ),
         enableSorting: false,
-        size: 34,
+        size: 44,
       },
-      col('stock_code', 'Stok Kodu', (r) => r.stock_code, { meta: { filterable: true } }),
-      col('name', 'Ad', (r) => r.name, { meta: { filterable: true } }),
-      col('barcode', 'Barkod', (r) => r.barcode, { meta: { filterable: true } }),
-      col('brand_name', 'Marka', (r) => r.brand_name, { meta: { filterable: true } }),
-      col('category_name', 'Kategori', (r) => r.category_name, { meta: { filterable: true } }),
+      col('stock_code', 'Stok Kodu', (r) => r.stock_code ?? '', { meta: { filterable: true }, size: 130 }),
+      col('name', 'Ad', (r) => r.name ?? '', { meta: { filterable: true }, size: 220 }),
+      col('barcode', 'Barkod', (r) => r.barcode ?? '', { meta: { filterable: true }, size: 130 }),
+      col('brand_name', 'Marka', (r) => r.brand_name ?? '', { meta: { filterable: true }, size: 120 }),
+      col('category_name', 'Kategori', (r) => r.category_name ?? '', { meta: { filterable: true }, size: 140 }),
       col('cost', 'Maliyet', (r) => r.cost, {
         meta: { filterable: true },
+        size: 110,
         cell: ({ row }) => formatMoney(row.original.cost, row.original.currency),
       }),
       col('sale_price', 'Satış Fiyatı', (r) => r.sale_price, {
         meta: { filterable: true },
+        size: 110,
         cell: ({ row }) => formatMoney(row.original.sale_price, row.original.currency),
       }),
       col('list_price', 'Liste Fiyatı', (r) => r.list_price, {
         meta: { filterable: true },
+        size: 110,
         cell: ({ row }) => formatMoney(row.original.list_price, row.original.currency),
       }),
       col('brand_min_price', 'Firma Min', (r) => r.brand_min_price, {
         meta: { filterable: true },
+        size: 100,
         cell: ({ row }) => formatMoney(row.original.brand_min_price, row.original.currency),
       }),
       col('desi', 'Desi', (r) => r.desi ?? r?.attributes?.desi, {
         meta: { filterable: true },
+        size: 80,
         cell: ({ row }) => formatNumber(row.original.desi ?? row.original?.attributes?.desi),
       }),
-      col('currency', 'Para Birimi', (r) => r.currency, { meta: { filterable: true } }),
+      col('currency', 'Para Birimi', (r) => r.currency ?? 'TRY', { meta: { filterable: true }, size: 90 }),
       col('vat_rate', 'KDV%', (r) => r.vat_rate, {
         meta: { filterable: true },
+        size: 70,
         cell: ({ row }) => (row.original.vat_rate != null ? `%${row.original.vat_rate}` : '—'),
       }),
-      col('status', 'Durum', (r) => r.status, { meta: { filterable: true } }),
+      col('status', 'Durum', (r) => (r?.status === 'passive' ? 'Pasif' : 'Aktif'), { meta: { filterable: true }, size: 80 }),
     ];
   }, []);
+
+  const columnFiltersArray = useMemo(
+    () =>
+      Object.entries(columnFilters)
+        .filter(([, v]) => v != null && String(v).trim() !== '')
+        .map(([id, value]) => ({ id, value })),
+    [columnFilters]
+  );
 
   const table = useReactTable({
     data,
     columns,
     state: {
       rowSelection,
+      globalFilter,
+      columnFilters: columnFiltersArray,
+    },
+    onGlobalFilterChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(globalFilter) : globalFilter;
+      setGlobalFilter(next ?? '');
+    },
+    onColumnFiltersChange: (updater) => {
+      setColumnFilters((prev) => {
+        const prevArr = Object.entries(prev).map(([id, value]) => ({ id, value }));
+        const next = typeof updater === 'function' ? updater(prevArr) : prevArr;
+        return Array.isArray(next) ? next.reduce((acc, { id, value }) => ({ ...acc, [id]: value }), {}) : prev;
+      });
     },
     enableRowSelection: true,
     onRowSelectionChange: (updater) => {
@@ -189,6 +217,11 @@ export default function ProductExcelGrid({
     overscan: 10,
   });
 
+  const totalColumnsWidth = useMemo(
+    () => visibleColumns.reduce((sum, c) => sum + (c.getSize?.() ?? c.columnDef.size ?? 140), 0),
+    [visibleColumns]
+  );
+
   const toggleColumn = (id) => {
     setVisibleColumnIds((prev) => {
       const next = new Set(prev);
@@ -200,7 +233,6 @@ export default function ProductExcelGrid({
 
   const setFilter = (colId, value) => {
     setColumnFilters((prev) => ({ ...prev, [colId]: value }));
-    table.getColumn(colId)?.setFilterValue(value);
   };
 
   return (
@@ -258,14 +290,19 @@ export default function ProductExcelGrid({
         </aside>
 
         <div style={styles.tableArea}>
-          <div style={styles.tableHead}>
-            <table style={styles.table}>
+          <div style={{ ...styles.tableHead, minWidth: totalColumnsWidth }}>
+            <table style={{ ...styles.table, minWidth: totalColumnsWidth }}>
+              <colgroup>
+                {visibleColumns.map((c) => (
+                  <col key={c.id} style={{ width: c.getSize?.() ?? c.columnDef.size ?? 140 }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   {visibleColumns.map((header) => (
                     <th
                       key={header.id}
-                      style={{ ...styles.th, width: header.getSize?.() || undefined }}
+                      style={{ ...styles.th, width: header.getSize?.() ?? header.columnDef.size ?? 140 }}
                       onClick={header.getToggleSortingHandler?.()}
                       title="Sırala"
                     >
@@ -291,7 +328,7 @@ export default function ProductExcelGrid({
                         <input
                           value={columnFilters[c.id] || ''}
                           onChange={(e) => setFilter(c.id, e.target.value)}
-                          placeholder="Filtre..."
+                          placeholder="Filtre"
                           style={styles.filterInput}
                         />
                       ) : null}
@@ -303,15 +340,17 @@ export default function ProductExcelGrid({
           </div>
 
           <div ref={parentRef} style={styles.scroll}>
-            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>
+            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative', minWidth: totalColumnsWidth }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const row = rowModel.rows[virtualRow.index];
                 if (!row) return null;
+                const gridCols = visibleColumns.map((c) => `${c.getSize?.() ?? c.columnDef.size ?? 140}px`).join(' ');
                 return (
                   <div
                     key={row.id}
                     style={{
                       ...styles.row,
+                      gridTemplateColumns: gridCols,
                       transform: `translateY(${virtualRow.start}px)`,
                       background: row.getIsSelected() ? '#eef2ff' : '#fff',
                     }}
@@ -323,7 +362,7 @@ export default function ProductExcelGrid({
                         {flexRender(col.columnDef.cell ?? col.columnDef.accessorFn, {
                           row,
                           getValue: row.getValue,
-                        }) || row.getValue(col.id)}
+                        }) ?? row.getValue(col.id) ?? '—'}
                       </div>
                     ))}
                   </div>
@@ -384,19 +423,22 @@ const styles = {
     background: '#fff',
     overflow: 'hidden',
   },
-  tableHead: { overflowX: 'auto', borderBottom: '1px solid #e2e8f0', background: '#0b1220' },
-  table: { width: '100%', borderCollapse: 'collapse', minWidth: 1200 },
+  tableHead: { overflowX: 'auto', borderBottom: '1px solid #e2e8f0', background: '#1e3a5f' },
+  table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' },
   th: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: 600,
     textAlign: 'left',
     padding: '10px 10px',
     whiteSpace: 'nowrap',
     cursor: 'pointer',
+    textTransform: 'uppercase',
+    letterSpacing: '0.02em',
   },
   thInner: { display: 'flex', gap: 8, alignItems: 'center' },
   sortIcon: { opacity: 0.85, fontSize: 11 },
-  thFilter: { background: '#0b1220', padding: '8px 10px' },
+  thFilter: { background: '#1e3a5f', padding: '8px 10px' },
   filterInput: {
     width: '100%',
     padding: '7px 8px',
