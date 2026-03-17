@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
 import ExcelToolbar from '../../components/ExcelToolbar';
 import { downloadExcelFile } from '../../lib/downloadExcel';
+import ProductExcelGrid from '../../components/ProductExcelGrid';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -377,44 +378,25 @@ export default function ProductsPage() {
           ) : products.length === 0 ? (
             <div style={s.empty}>Henüz ürün eklenmemiş.</div>
           ) : (
-            <div style={s.tableWrap}>
-              <table style={s.table}>
-                <thead>
-                  <tr>
-                    {['Stok Kodu','Ad','Barkod','Marka','Kategori','Maliyet','Satış Fiyatı','Firma Min','Brüt Marj','Para Birimi','KDV%','Durum','İşlem'].map((h) => (
-                      <th key={h} style={s.th}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((p) => (
-                    <tr key={p.id} style={s.tr}>
-                      <td style={s.td}><code>{p.stock_code}</code></td>
-                      <td style={s.td}>{p.name}</td>
-                      <td style={s.td}>{p.barcode || '—'}</td>
-                      <td style={s.td}>{p.brand_name || '—'}</td>
-                      <td style={s.td}>{p.category_name || '—'}</td>
-                      <td style={s.td}>{p.cost ? `${p.cost} ${p.currency}` : '—'}</td>
-                      <td style={s.td}>{p.sale_price ? `${p.sale_price} ${p.currency}` : '—'}</td>
-                      <td style={s.td}>{p.brand_min_price ? `${p.brand_min_price} ${p.currency}` : '—'}</td>
-                      <td style={s.td}>{renderMarginBadge(p)}</td>
-                      <td style={s.td}>{p.currency || 'TRY'}</td>
-                      <td style={s.td}>{p.vat_rate !== null && p.vat_rate !== undefined ? `%${p.vat_rate}` : '—'}</td>
-                      <td style={s.td}>
-                        <span style={p.status === 'active' ? s.badgeActive : s.badgePassive}>
-                          {p.status === 'active' ? 'Aktif' : 'Pasif'}
-                        </span>
-                      </td>
-                      <td style={s.td}>
-                        <button onClick={() => router.push(`/price-analysis?productId=${p.id}`)} style={s.analyzeBtn}>Analiz</button>
-                        <button onClick={() => openEdit(p)} style={s.editBtn}>Düzenle</button>
-                        <button onClick={() => handleDelete(p.id)} style={s.deleteBtn}>Sil</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ProductExcelGrid
+              rows={products}
+              onOpenProduct={(p) => openEdit(p)}
+              onSelectionChange={() => {}}
+              initialVisibleColumnIds={[
+                'stock_code',
+                'name',
+                'barcode',
+                'brand_name',
+                'category_name',
+                'cost',
+                'sale_price',
+                'brand_min_price',
+                'desi',
+                'currency',
+                'vat_rate',
+                'status',
+              ]}
+            />
           )
         )}
 
