@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
@@ -17,15 +17,8 @@ export default function MarketplacesPage() {
   const [form, setForm] = useState({ marketplace_name: '', api_key: '', api_secret: '' });
   const [syncStatus, setSyncStatus] = useState({});
 
-  useEffect(() => {
-    if (!loading && !user) router.push('/login');
-  }, [user, loading, router]);
-
-  useEffect(() => {
-  fetchMarketplaces();
-  }, [fetchMarketplaces]);
-
-  const fetchMarketplaces = async () => {
+  const fetchMarketplaces = useCallback(async () => {
+    if (!token) return;
     setFetching(true);
     try {
       const res = await fetch(`${API_URL}/api/marketplaces`, {
@@ -38,7 +31,15 @@ export default function MarketplacesPage() {
     } finally {
       setFetching(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (!loading && !user) router.push('/login');
+  }, [user, loading, router]);
+
+  useEffect(() => {
+    fetchMarketplaces();
+  }, [fetchMarketplaces]);
 
   const handleCreate = async (e) => {
     e.preventDefault();

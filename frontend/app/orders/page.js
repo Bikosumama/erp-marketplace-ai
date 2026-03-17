@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../context/AuthContext';
 import Navigation from '../../components/Navigation';
@@ -22,15 +22,8 @@ export default function OrdersPage() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!loading && !user) router.push('/login');
-  }, [user, loading, router]);
-
-  useEffect(() => {
-  fetchOrders();
-  }, [fetchOrders]);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
+    if (!token) return;
     setFetching(true);
     try {
       const res = await fetch(`${API_URL}/api/orders`, {
@@ -43,7 +36,15 @@ export default function OrdersPage() {
     } finally {
       setFetching(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (!loading && !user) router.push('/login');
+  }, [user, loading, router]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
 
   const handleDelete = async (id) => {
     if (!confirm('Bu siparisi silmek istediginize emin misiniz?')) return;
