@@ -299,6 +299,7 @@ router.post('/', authMiddleware, async (req, res) => {
       sale_price,
       list_price,
       brand_min_price,
+      desi,
       currency,
       vat_rate,
       status,
@@ -324,12 +325,13 @@ router.post('/', authMiddleware, async (req, res) => {
           sale_price,
           list_price,
           brand_min_price,
+          desi,
           currency,
           vat_rate,
           status,
           attributes
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         RETURNING *
       `,
       [
@@ -343,6 +345,7 @@ router.post('/', authMiddleware, async (req, res) => {
         sale_price || null,
         list_price || null,
         brand_min_price || null,
+        desi != null && desi !== '' ? Number(desi) : null,
         currency || 'TRY',
         vat_rate != null ? vat_rate : 18,
         status || 'active',
@@ -420,6 +423,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
       sale_price,
       list_price,
       brand_min_price,
+      desi,
       currency,
       vat_rate,
       status,
@@ -443,12 +447,13 @@ router.put('/:id', authMiddleware, async (req, res) => {
           sale_price = $8,
           list_price = $9,
           brand_min_price = $10,
-          currency = COALESCE($11, currency),
-          vat_rate = COALESCE($12, vat_rate),
-          status = COALESCE($13, status),
-          attributes = COALESCE($14::jsonb, attributes),
+          desi = COALESCE($11, desi),
+          currency = COALESCE($12, currency),
+          vat_rate = COALESCE($13, vat_rate),
+          status = COALESCE($14, status),
+          attributes = COALESCE($15::jsonb, attributes),
           updated_at = NOW()
-        WHERE id = $15
+        WHERE id = $16
         RETURNING *
       `,
       [
@@ -462,6 +467,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
         sale_price !== undefined ? sale_price : null,
         list_price !== undefined ? list_price : null,
         brand_min_price !== undefined ? brand_min_price : null,
+        desi !== undefined && desi !== '' ? Number(desi) : null,
         currency || null,
         vat_rate !== undefined ? vat_rate : null,
         status || null,

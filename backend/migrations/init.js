@@ -84,6 +84,7 @@ async function init() {
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(5, 2) DEFAULT 18;`);
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';`);
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS attributes JSONB DEFAULT '{}';`);
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS desi NUMERIC(12, 4);`);
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();`);
 
     await client.query(`

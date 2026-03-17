@@ -220,6 +220,13 @@ function getProductDesi(product = {}) {
     if (Number.isFinite(value) && value > 0) return value;
   }
 
+  const attrs = product.attributes || {};
+  if (attrs && typeof attrs === 'object') {
+    const attrDesi = attrs.desi ?? attrs.shipping_desi ?? attrs.desi_value ?? attrs.kargo_desi;
+    const value = Number(attrDesi);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+
   return 0;
 }
 

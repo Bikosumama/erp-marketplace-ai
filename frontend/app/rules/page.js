@@ -324,7 +324,14 @@ function getProductDesi(product = {}) {
 
   for (const item of candidates) {
     const value = Number(item);
-    if (Number.isFinite(value) && value > 0) return value;
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+
+  const attrs = product.attributes || {};
+  if (attrs && typeof attrs === 'object') {
+    const attrDesi = attrs.desi ?? attrs.shipping_desi ?? attrs.desi_value ?? attrs.kargo_desi;
+    const value = Number(attrDesi);
+    if (Number.isFinite(value) && value >= 0) return value;
   }
 
   return 0;
@@ -350,7 +357,10 @@ function buildSimulatorDefaults({
   const marketplaceRule = resolveScopedRule(marketplaceRules, context);
   const profitTarget = resolveScopedRule(profitTargets, context);
 
-  const currentPrice = toNumber(product.sale_price ?? product.list_price ?? product.price, 0);
+  const currentPrice = toNumber(
+    product.sale_price ?? product.list_price ?? product.price ?? 0,
+    0
+  );
   const desi = getProductDesi(product);
   const shippingRule = resolveShippingRule(shippingRules, {
     marketplaceId,

@@ -269,6 +269,7 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
             sale_price: safeParseFloat(get(row, 'sale_price')),
             list_price: safeParseFloat(get(row, 'list_price')),
             brand_min_price: safeParseFloat(get(row, 'brand_min_price')),
+            desi: safeParseFloat(get(row, 'desi')),
             currency: get(row, 'currency') || 'TRY',
             vat_rate: safeParseFloat(get(row, 'vat_rate')) ?? 18,
             status: normalizeStatus(get(row, 'status')),
@@ -296,11 +297,12 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
                   sale_price = $7,
                   list_price = $8,
                   brand_min_price = $9,
-                  currency = $10,
-                  vat_rate = $11,
-                  status = $12,
+                  desi = $10,
+                  currency = $11,
+                  vat_rate = $12,
+                  status = $13,
                   updated_at = NOW()
-                WHERE id = $13
+                WHERE id = $14
               `,
               [
                 fields.name,
@@ -312,6 +314,7 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
                 fields.sale_price,
                 fields.list_price,
                 fields.brand_min_price,
+                fields.desi ?? null,
                 fields.currency,
                 fields.vat_rate,
                 fields.status,
@@ -333,11 +336,12 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
                   sale_price,
                   list_price,
                   brand_min_price,
+                  desi,
                   currency,
                   vat_rate,
                   status
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                 RETURNING id
               `,
               [
@@ -351,6 +355,7 @@ router.post('/commit', authMiddleware, upload.single('file'), async (req, res) =
                 fields.sale_price,
                 fields.list_price,
                 fields.brand_min_price,
+                fields.desi ?? null,
                 fields.currency,
                 fields.vat_rate,
                 fields.status,
