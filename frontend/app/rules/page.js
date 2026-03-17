@@ -1356,6 +1356,7 @@ export default function RulesPage() {
   const { user, token, loading } = useAuth();
   const router = useRouter();
   const fileInputRef = useRef(null);
+  const simulatorSelectionRef = useRef({ marketplaceId: '', productId: '' });
 
   const [activeTab, setActiveTab] = useState('marketplace');
   const [showShippingHelp, setShowShippingHelp] = useState(false);
@@ -1547,6 +1548,40 @@ export default function RulesPage() {
     simulatorForm.product_id,
     applySimulatorDefaults,
   ]);
+
+  useEffect(() => {
+    if (!isSimulatorOpen) return;
+    const marketplaceId = String(simulatorForm.marketplace_id || '');
+    const productId = String(simulatorForm.product_id || '');
+    if (!marketplaceId || !productId) return;
+
+    const prev = simulatorSelectionRef.current;
+    if (prev.marketplaceId === marketplaceId && prev.productId === productId) return;
+
+    simulatorSelectionRef.current = { marketplaceId, productId };
+
+    setSimulatorManualOverrides({
+      cost: false,
+      current_price: false,
+      desi: false,
+      brand_min_price: false,
+      commission_rate: false,
+      vat_rate: false,
+      fixed_fee: false,
+      min_margin_rate: false,
+      target_margin_rate: false,
+      rounding_ending: false,
+      shipping_cost: false,
+    });
+
+    setSimulatorForm((prevForm) => ({
+      ...prevForm,
+      shipping_cost_manual: false,
+    }));
+    setSimulatorResult(null);
+    setSimulatorInfo('');
+    setSimulatorError('');
+  }, [isSimulatorOpen, simulatorForm.marketplace_id, simulatorForm.product_id]);
 
   async function submitForm(url, method, payload, successMessage) {
     setSaving(true);
