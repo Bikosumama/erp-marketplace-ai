@@ -352,7 +352,7 @@ export default function ProductExcelGrid({
                       ...styles.row,
                       gridTemplateColumns: gridCols,
                       transform: `translateY(${virtualRow.start}px)`,
-                      background: row.getIsSelected() ? '#eef2ff' : '#fff',
+                      background: row.getIsSelected() ? '#334155' : '#1e293b',
                     }}
                     onDoubleClick={() => onOpenProduct?.(row.original)}
                     onClick={() => row.toggleSelected()}
@@ -418,9 +418,9 @@ const styles = {
   sideList: { display: 'flex', flexDirection: 'column', gap: 8 },
   sideItem: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: '#334155' },
   tableArea: {
-    border: '1px solid #e2e8f0',
+    border: '1px solid #334155',
     borderRadius: 14,
-    background: '#fff',
+    background: '#1e293b',
     overflow: 'hidden',
   },
   tableHead: { overflowX: 'auto', borderBottom: '1px solid #e2e8f0', background: '#1e3a5f' },
@@ -458,10 +458,10 @@ const styles = {
     display: 'grid',
     gridAutoFlow: 'column',
     gridAutoColumns: 'minmax(140px, 1fr)',
-    borderBottom: '1px solid #f1f5f9',
+    borderBottom: '1px solid #334155',
     alignItems: 'center',
     cursor: 'pointer',
   },
-  cell: { padding: '0 10px', fontSize: 13, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  cell: { padding: '0 10px', fontSize: 13, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
 };
 
