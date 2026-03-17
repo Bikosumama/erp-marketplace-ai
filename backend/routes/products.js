@@ -537,6 +537,125 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// POST bulk upsert (stock_code anahtar; yoksa insert, varsa update)
+router.post('/bulk-upsert', authMiddleware, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows = [] } = req.body || {};
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: 'rows dizisi gerekli ve boş olamaz' });
+    }
+    if (rows.length > 500) {
+      return res.status(400).json({ error: 'Tek seferde en fazla 500 satır gönderilebilir' });
+    }
+
+    const results = { created: 0, updated: 0, errors: [] };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const stock_code = row.stock_code != null ? String(row.stock_code).trim() : '';
+      const name = row.name != null ? String(row.name).trim() : '';
+
+      if (!stock_code) {
+        results.errors.push({ row: i + 1, stock_code: stock_code || '(boş)', error: 'Stok kodu zorunludur' });
+        continue;
+      }
+      if (!name) {
+        results.errors.push({ row: i + 1, stock_code, error: 'Ürün adı zorunludur' });
+        continue;
+      }
+
+      const cost = row.cost !== undefined && row.cost !== null && row.cost !== '' ? Number(row.cost) : null;
+      const sale_price = row.sale_price !== undefined && row.sale_price !== null && row.sale_price !== '' ? Number(row.sale_price) : null;
+      const list_price = row.list_price !== undefined && row.list_price !== null && row.list_price !== '' ? Number(row.list_price) : null;
+      const brand_min_price = row.brand_min_price !== undefined && row.brand_min_price !== null && row.brand_min_price !== '' ? Number(row.brand_min_price) : null;
+      const desi = row.desi !== undefined && row.desi !== null && row.desi !== '' ? Number(row.desi) : null;
+      const vat_rate = row.vat_rate !== undefined && row.vat_rate !== null && row.vat_rate !== '' ? Number(row.vat_rate) : 18;
+      if (cost !== null && !Number.isFinite(cost)) {
+        results.errors.push({ row: i + 1, stock_code, error: 'Maliyet geçerli bir sayı olmalı' });
+        continue;
+      }
+      if (sale_price !== null && !Number.isFinite(sale_price)) {
+        results.errors.push({ row: i + 1, stock_code, error: 'Satış fiyatı geçerli bir sayı olmalı' });
+        continue;
+      }
+
+      try {
+        const existing = await client.query(
+          'SELECT id FROM products WHERE LOWER(TRIM(stock_code)) = LOWER(TRIM($1)) LIMIT 1',
+          [stock_code]
+        );
+
+        if (existing.rows.length > 0) {
+          await client.query(
+            `UPDATE products SET
+              name = COALESCE($1, name),
+              description = COALESCE($2, description),
+              barcode = COALESCE($3, barcode),
+              cost = $4,
+              sale_price = $5,
+              list_price = $6,
+              brand_min_price = $7,
+              desi = $8,
+              vat_rate = COALESCE($9, vat_rate),
+              currency = COALESCE($10, currency),
+              status = COALESCE($11, status),
+              updated_at = NOW()
+            WHERE id = $12`,
+            [
+              name || null,
+              row.description != null ? String(row.description).trim() : null,
+              row.barcode != null ? String(row.barcode).trim() : null,
+              cost,
+              sale_price,
+              list_price,
+              brand_min_price,
+              desi,
+              vat_rate,
+              row.currency || 'TRY',
+              row.status === 'passive' || row.status === false || String(row.status).toLowerCase() === 'hayır' ? 'passive' : 'active',
+              existing.rows[0].id,
+            ]
+          );
+          results.updated++;
+        } else {
+          await client.query(
+            `INSERT INTO products (stock_code, name, description, barcode, cost, sale_price, list_price, brand_min_price, desi, currency, vat_rate, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [
+              stock_code,
+              name,
+              row.description != null ? String(row.description).trim() : null,
+              row.barcode != null ? String(row.barcode).trim() : null,
+              cost,
+              sale_price,
+              list_price,
+              brand_min_price,
+              desi,
+              row.currency || 'TRY',
+              vat_rate,
+              row.status === 'passive' || row.status === false || String(row.status).toLowerCase() === 'hayır' ? 'passive' : 'active',
+            ]
+          );
+          results.created++;
+        }
+      } catch (err) {
+        if (err.code === '23505') {
+          results.errors.push({ row: i + 1, stock_code, error: 'Stok kodu zaten mevcut (çakışma)' });
+        } else {
+          results.errors.push({ row: i + 1, stock_code, error: err.message || 'Kayıt hatası' });
+        }
+      }
+    }
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // DELETE product
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {

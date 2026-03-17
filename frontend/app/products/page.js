@@ -7,6 +7,7 @@ import Navigation from '../../components/Navigation';
 import ExcelToolbar from '../../components/ExcelToolbar';
 import { downloadExcelFile } from '../../lib/downloadExcel';
 import ProductExcelGrid from '../../components/ProductExcelGrid';
+import { excelHeaderToApiField } from '../../lib/dataGridColumnMap';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -50,6 +51,10 @@ export default function ProductsPage() {
   const [importMapping, setImportMapping] = useState({});
   const [importResult, setImportResult] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pastePreview, setPastePreview] = useState(null);
+  const [pasteResult, setPasteResult] = useState(null);
+  const [pasteTransferring, setPasteTransferring] = useState(false);
   const [downloadingExport, setDownloadingExport] = useState(false);
   const [downloadingTemplate, setDownloadingTemplate] = useState(false);
 
@@ -330,8 +335,83 @@ export default function ProductsPage() {
     setImportFile(file);
     setImportPreview(null);
     setImportResult(null);
+    setPastePreview(null);
+    setPasteResult(null);
+    setPasteText('');
     setTab('import');
     setSuccess(`Dosya seçildi: ${file.name}`);
+  };
+
+  const parsePaste = () => {
+    const text = String(pasteText || '').trim();
+    if (!text) {
+      setPastePreview(null);
+      return;
+    }
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) {
+      setPastePreview(null);
+      return;
+    }
+    const rawHeaders = lines[0].split(/\t/).map((h) => h.trim());
+    const fieldIndexes = {};
+    rawHeaders.forEach((h, idx) => {
+      const apiField = excelHeaderToApiField(h);
+      if (apiField && !fieldIndexes[apiField]) fieldIndexes[apiField] = idx;
+    });
+    if (!fieldIndexes.stock_code && fieldIndexes.barcode) fieldIndexes.stock_code = fieldIndexes.barcode;
+    const numericFields = ['cost', 'sale_price', 'list_price', 'brand_min_price', 'desi', 'vat_rate', 'quantity', 'quantity_in', 'quantity_out', 'margin'];
+    const parseNum = (v) => {
+      if (v === undefined || v === null || v === '') return null;
+      let s = String(v).trim().replace(/\s/g, '');
+      const hasComma = s.includes(',');
+      const lastComma = s.lastIndexOf(',');
+      const lastDot = s.lastIndexOf('.');
+      if (hasComma && lastComma > (lastDot >= 0 ? lastDot : -1)) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else if (hasComma) {
+        s = s.replace(',', '.');
+      }
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    };
+    const apiRows = [];
+    for (let r = 1; r < lines.length; r++) {
+      const cells = lines[r].split(/\t/);
+      const row = {};
+      Object.entries(fieldIndexes).forEach(([field, idx]) => {
+        const val = cells[idx];
+        const str = val !== undefined && val !== null ? String(val).trim() : '';
+        row[field] = numericFields.includes(field) ? (parseNum(str) ?? str) : str;
+      });
+      if (!row.stock_code && row.barcode) row.stock_code = row.barcode;
+      if (row.stock_code || row.name) apiRows.push(row);
+    }
+    setPastePreview({ rawHeaders, apiRows, fieldIndexes });
+    setPasteResult(null);
+  };
+
+  const handlePasteTransfer = async () => {
+    if (!pastePreview?.apiRows?.length) return;
+    setPasteTransferring(true);
+    setError('');
+    setPasteResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/products/bulk-upsert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ rows: pastePreview.apiRows }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Aktarım başarısız');
+      setPasteResult(data);
+      setSuccess(`${data.created} oluşturuldu, ${data.updated} güncellendi. ${data.errors?.length || 0} hata.`);
+      fetchAll();
+    } catch (err) {
+      setError(err.message || 'Aktarım başarısız');
+    } finally {
+      setPasteTransferring(false);
+    }
   };
 
   if (loading) return <div style={s.loading}>Yükleniyor...</div>;
@@ -477,8 +557,100 @@ export default function ProductsPage() {
 
         {tab === 'import' && (
           <div style={s.card}>
-            <h2 style={s.sectionTitle}>Excel / CSV İçe Aktar</h2>
-            <p style={s.hint}>Desteklenen formatlar: .xlsx, .xls, .csv — Zorunlu kolonlar: <b>stock_code</b>, <b>name</b></p>
+            <h2 style={s.sectionTitle}>İçe Aktar</h2>
+            <p style={s.hint}>DataGrid.xlsx ile uyumlu: Ad, Kod, Barkod, Marka, Kategori, Satış Fiyat, Alış Fiyat, Desi vb. Güncelleme anahtarı: <b>stock_code</b> (Kod).</p>
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={s.btn}
+                onClick={() => { setImportFile(null); setImportPreview(null); setPastePreview(null); setPasteText(''); setPasteResult(null); document.getElementById('file-import')?.click(); }}
+              >
+                Dosya Seç (xlsx)
+              </button>
+              <input id="file-import" type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { setImportFile(e.target.files[0] || null); setImportPreview(null); setImportResult(null); setPastePreview(null); setPasteText(''); }} style={{ display: 'none' }} />
+              <span style={{ alignSelf: 'center', color: '#6b7280' }}>veya</span>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Excel&apos;den Yapıştır (tab ile ayrılmış, ilk satır başlık)</label>
+                <textarea
+                  placeholder="Buraya Excel'den kopyaladığınız tabloyu yapıştırın (Ctrl+V). İlk satır kolon başlıkları olmalı."
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  onBlur={parsePaste}
+                  style={{ width: '100%', minHeight: 100, padding: 10, borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13 }}
+                  rows={4}
+                />
+                <button type="button" onClick={parsePaste} style={{ ...s.btn, marginTop: 8 }}>Önizle</button>
+              </div>
+            </div>
+
+            {pastePreview && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <span style={s.badgeActive}>AKTARILACAK: {pastePreview.apiRows?.length ?? 0}</span>
+                  {pasteResult && (
+                    <>
+                      <span style={s.badgeActive}>AKTARILAN: {(pasteResult.created || 0) + (pasteResult.updated || 0)}</span>
+                      {(pasteResult.errors?.length || 0) > 0 && (
+                        <span style={s.marginDanger}>HATALI: {pasteResult.errors.length}</span>
+                      )}
+                    </>
+                  )}
+                </div>
+                <div style={s.tableWrap}>
+                  <table style={s.table}>
+                    <thead>
+                      <tr>
+                        <th style={s.th}>#</th>
+                        <th style={s.th}>Stok Kodu</th>
+                        <th style={s.th}>Ad</th>
+                        <th style={s.th}>Barkod</th>
+                        <th style={s.th}>Alış Fiyat</th>
+                        <th style={s.th}>Satış Fiyat</th>
+                        <th style={s.th}>Desi</th>
+                        {pasteResult?.errors?.length > 0 && <th style={s.th}>Aktarım Durumu</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(pastePreview.apiRows || []).slice(0, 50).map((row, i) => (
+                        <tr key={i} style={s.tr}>
+                          <td style={s.td}>{i + 1}</td>
+                          <td style={s.td}>{row.stock_code || '—'}</td>
+                          <td style={s.td}>{row.name || '—'}</td>
+                          <td style={s.td}>{row.barcode || '—'}</td>
+                          <td style={s.td}>{row.cost ?? '—'}</td>
+                          <td style={s.td}>{row.sale_price ?? '—'}</td>
+                          <td style={s.td}>{row.desi ?? '—'}</td>
+                          {pasteResult?.errors?.length > 0 && (
+                            <td style={s.td}>
+                              {pasteResult.errors.find((e) => e.row === i + 1)?.error || '—'}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {pastePreview.apiRows?.length > 50 && <p style={s.hint}>İlk 50 satır gösteriliyor. Toplam: {pastePreview.apiRows.length}</p>}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button type="button" onClick={handlePasteTransfer} disabled={pasteTransferring || !pastePreview.apiRows?.length} style={{ ...s.btn, backgroundColor: '#16a34a' }}>
+                    {pasteTransferring ? 'Aktarılıyor...' : 'Aktarımı Başlat'}
+                  </button>
+                  <button type="button" onClick={() => { setPastePreview(null); setPasteText(''); setPasteResult(null); }} style={s.cancelBtn}>Temizle</button>
+                </div>
+                {pasteResult?.errors?.length > 0 && (
+                  <div style={s.importErrors}>
+                    <strong>Hatalar ({pasteResult.errors.length}):</strong>
+                    {pasteResult.errors.slice(0, 30).map((e, i) => (
+                      <div key={i}>Satır {e.row} ({e.stock_code}): {e.error}</div>
+                    ))}
+                    {pasteResult.errors.length > 30 && <div>... ve {pasteResult.errors.length - 30} hata daha</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <h3 style={s.subTitle}>Dosyadan İçe Aktar</h3>
             <div style={s.importSection}>
               <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { setImportFile(e.target.files[0]); setImportPreview(null); setImportResult(null); }} style={s.fileInput} />
               <button onClick={handleImportPreview} disabled={!importFile} style={s.btn}>Önizle</button>
