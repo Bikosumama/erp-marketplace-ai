@@ -1,5 +1,6 @@
 function toNumber(value, fallback = 0) {
-  const { buildResolvedRuleContext } = require('./ruleResolver');
+  if (value === '' || value === null || value === undefined) return fallback;
+  const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
 
