@@ -6,6 +6,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const authMiddleware = require('../middleware/auth');
 const { sendWorkbook } = require('../services/excelExport');
+const { buildSimulationResult } = require('../services/ruleResolver');
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -987,6 +988,51 @@ async function upsertExtraDeduction(client, values) {
 
   return 'created';
 }
+
+router.post('/simulate', async (req, res) => {
+  try {
+    const { productId, marketplaceId, overrides = {} } = req.body || {};
+    if (!productId || !marketplaceId) {
+      return res.status(400).json({ error: 'productId ve marketplaceId gerekli' });
+    }
+
+    const [productRes, marketplaceRes, marketplaceRules, shippingRules, profitTargets, extraDeductions] =
+      await Promise.all([
+        pool.query(
+          `SELECT p.*, c.name AS category_name, b.name AS brand_name
+           FROM products p
+           LEFT JOIN categories c ON c.id = p.category_id
+           LEFT JOIN brands b ON b.id = p.brand_id
+           WHERE p.id = $1`,
+          [Number(productId)]
+        ),
+        pool.query('SELECT id, marketplace_name FROM marketplaces WHERE id = $1', [Number(marketplaceId)]),
+        getMarketplaceRules(),
+        getShippingRules(),
+        getProfitTargets(),
+        getExtraDeductions(),
+      ]);
+
+    const product = productRes.rows[0];
+    const marketplace = marketplaceRes.rows[0];
+    if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' });
+    if (!marketplace) return res.status(404).json({ error: 'Pazaryeri bulunamadı' });
+
+    const result = buildSimulationResult({
+      product: { ...product, product_name: product.name },
+      marketplaceId: Number(marketplaceId),
+      marketplace,
+      marketplaceRules,
+      shippingRules,
+      profitTargets,
+      extraDeductions,
+      overrides,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.get('/export', async (req, res) => {
   try {

@@ -1213,6 +1213,18 @@ function RulesSimulatorModal({
   infoMessage,
   errorMessage,
 }) {
+  const [productSearch, setProductSearch] = useState('');
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch.trim()) return products;
+    const q = productSearch.trim().toLowerCase();
+    return (products || []).filter((p) => {
+      const name = (p.name || p.product_name || '').toLowerCase();
+      const stockCode = (p.stock_code || '').toLowerCase();
+      const barcode = (p.barcode || '').toString().toLowerCase();
+      return name.includes(q) || stockCode.includes(q) || barcode.includes(q);
+    });
+  }, [products, productSearch]);
 
   if (!open) return null;
 
@@ -1223,8 +1235,7 @@ function RulesSimulatorModal({
           <div>
             <h2 style={styles.modalTitle}>Kurallar Simülatörü</h2>
             <p style={styles.modalSubtitle}>
-              Ürün bazlı kural çıktısını test et. Varsayılanlar otomatik gelir, istersen alanları
-              değiştirip tekrar hesaplayabilirsin.
+              Pazaryeri ve ürün seç, sonucu hesapla. İstersen alanları değiştirip tekrar hesaplayabilirsin.
             </p>
           </div>
 
@@ -1237,12 +1248,12 @@ function RulesSimulatorModal({
           {infoMessage ? <div style={styles.infoAlert}>{infoMessage}</div> : null}
           {errorMessage ? <div style={styles.errorAlert}>{errorMessage}</div> : null}
 
-          <div style={styles.modalGrid} className="rules-simulator-responsive">
+          <div style={styles.modalGridTwoCol}>
             <section style={styles.simulatorSection}>
               <div style={styles.simulatorSectionHeader}>
-                <h3 style={styles.simulatorSectionTitle}>Girdi Alanı</h3>
+                <h3 style={styles.simulatorSectionTitle}>Girdi</h3>
                 <p style={styles.simulatorSectionText}>
-                  Önce pazaryeri ve ürün seç. Alış, satış, desi, komisyon ve kargo otomatik dolacak.
+                  Pazaryeri ve ürün seçin; alış, satış ve kural değerleri otomatik dolar.
                 </p>
               </div>
 
@@ -1266,6 +1277,15 @@ function RulesSimulatorModal({
                   </SelectInput>
                 </Field>
 
+                <Field label="Ürün ara (barkod, stok kodu veya ad)">
+                  <TextInput
+                    type="text"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Yazınca liste daralır..."
+                  />
+                </Field>
+
                 <Field label="Ürün">
                   <SelectInput
                     value={simulatorForm.product_id}
@@ -1277,7 +1297,7 @@ function RulesSimulatorModal({
                     }
                   >
                     <option value="">Seçiniz</option>
-                    {products.map((item) => (
+                    {filteredProducts.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.stock_code
                           ? `${item.stock_code} - ${item.name || item.product_name || `Ürün #${item.id}`}`
@@ -1285,6 +1305,11 @@ function RulesSimulatorModal({
                       </option>
                     ))}
                   </SelectInput>
+                  {productSearch.trim() && (
+                    <span style={styles.simulatorSearchHint}>
+                      {filteredProducts.length} ürün eşleşti
+                    </span>
+                  )}
                 </Field>
 
                 <Field label="Alış Fiyatı">
@@ -1504,76 +1529,9 @@ function RulesSimulatorModal({
 
             <section style={styles.simulatorSection}>
               <div style={styles.simulatorSectionHeader}>
-                <h3 style={styles.simulatorSectionTitle}>Uygulanan Kurallar</h3>
-                <p style={styles.simulatorSectionText}>
-                  Bu blokta hangi kuralın ve hangi kargo bareminin devreye girdiği görünür.
-                </p>
-              </div>
-
-              <div style={styles.simulatorStack}>
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Genel / Fallback Kural</div>
-                  <div style={styles.simulatorInfoValue}>
-                    {result?.matchedRules?.marketplaceGeneralRule?.name || 'Henüz hesaplanmadı'}
-                  </div>
-                </div>
-
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Uygulanan Pazaryeri Kuralı</div>
-                  <div style={styles.simulatorInfoValue}>
-                    {result?.matchedRules?.marketplaceSpecialRule?.name || 'Henüz hesaplanmadı'}
-                  </div>
-                </div>
-
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Uygulanan Kâr Hedefi</div>
-                  <div style={styles.simulatorInfoValue}>
-                    {result?.matchedRules?.profitRule
-                      ? `#${result.matchedRules.profitRule.id} • min ${formatPercent(
-                          result.matchedRules.profitRule.minMarginRate
-                        )} / hedef ${formatPercent(result.matchedRules.profitRule.targetMarginRate)}`
-                      : 'Henüz hesaplanmadı'}
-                  </div>
-                </div>
-
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Uygulanan Kargo Kuralı</div>
-                  <div style={styles.simulatorInfoValue}>
-                    {result?.matchedRules?.shippingRule?.name || 'Henüz hesaplanmadı'}
-                  </div>
-                </div>
-
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Ek Kesintiler</div>
-                  <div style={styles.simulatorInfoText}>
-                    {result?.matchedRules?.extraDeductions?.length
-                      ? result.matchedRules.extraDeductions
-                          .map((item) =>
-                            item.type === 'fixed'
-                              ? `${item.name}: ${formatCurrency(item.fixedAmount)}`
-                              : `${item.name}: ${formatPercent(item.rate)}`
-                          )
-                          .join(' • ')
-                      : 'Ek kesinti eşleşmedi'}
-                  </div>
-                </div>
-
-                <div style={styles.simulatorInfoCard}>
-                  <div style={styles.simulatorInfoLabel}>Açıklama</div>
-                  <div style={styles.simulatorInfoText}>
-                    {result?.decision?.reasons?.length
-                      ? result.decision.reasons.join(' | ')
-                      : 'Pazaryeri ve ürün seçildikten sonra kural özeti burada gösterilecek.'}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section style={styles.simulatorSection}>
-              <div style={styles.simulatorSectionHeader}>
                 <h3 style={styles.simulatorSectionTitle}>Sonuç</h3>
                 <p style={styles.simulatorSectionText}>
-                  Nihai önerilen fiyat, müşterinin göreceği fiyat ve finansal kırılım burada oluşur.
+                  Önerilen fiyat, marj ve uyarılar.
                 </p>
               </div>
 
@@ -1696,8 +1654,10 @@ function RulesSimulatorModal({
                 <div style={styles.simulatorWarningTitle}>Uyarılar</div>
                 <div style={styles.simulatorWarningText}>
                   {result?.decision?.alerts?.length
-                    ? result.decision.alerts.map((item) => `${item.title}: ${item.message}`).join(' | ')
-                    : 'Şimdilik uyarı yok.'}
+                    ? result.decision.alerts.map((item) => `${item.title}: ${item.message}`).join(' • ')
+                    : result?.decision?.reasons?.length
+                      ? `Gerekçeler: ${result.decision.reasons.join(' • ')}`
+                      : 'Bu senaryoda ek uyarı veya gerekçe yok.'}
                 </div>
               </div>
             </section>
@@ -1742,9 +1702,6 @@ export default function RulesPage() {
   const [shippingForm, setShippingForm] = useState(emptyShippingRule);
   const [profitForm, setProfitForm] = useState(emptyProfitTarget);
   const [extraForm, setExtraForm] = useState(emptyExtraDeduction);
-
-  const [simulatorForm, setSimulatorForm] = useState(createEmptySimulatorForm());
-  const [simulatorResult, setSimulatorResult] = useState(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -2143,49 +2100,33 @@ export default function RulesPage() {
   }
 
   async function handleSimulatorCalculate() {
-  setSimulatorError('');
-  setSimulatorInfo('');
-  setError('');
+    setSimulatorError('');
+    setSimulatorInfo('');
+    setError('');
 
-  if (!simulatorForm.marketplace_id) {
-    setSimulatorError('Simülasyon için pazaryeri seçmelisin');
-    return;
-  }
+    if (!simulatorForm.marketplace_id) {
+      setSimulatorError('Simülasyon için pazaryeri seçmelisin');
+      return;
+    }
 
-  if (!simulatorForm.product_id) {
-    setSimulatorError('Simülasyon için ürün seçmelisin');
-    return;
-  }
+    if (!simulatorForm.product_id) {
+      setSimulatorError('Simülasyon için ürün seçmelisin');
+      return;
+    }
 
-  setSimulatorCalculating(true);
+    setSimulatorCalculating(true);
 
-  try {
-    const localResult = buildLocalSimulationResult({
-      simulatorForm,
-      products,
-      marketplaces,
-      marketplaceRules,
-      shippingRules,
-      profitTargets,
-      extraDeductions,
-    });
+    const overrides = {};
+    if (simulatorForm.cost !== '') overrides.cost = toNumber(simulatorForm.cost);
+    if (simulatorForm.current_price !== '') overrides.currentPrice = toNumber(simulatorForm.current_price);
+    if (simulatorForm.desi !== '') overrides.desi = toNumber(simulatorForm.desi);
+    if (simulatorForm.competitor_price !== '') overrides.competitorPrice = toNumber(simulatorForm.competitor_price);
+    if (simulatorForm.brand_min_price !== '') overrides.brandMinPrice = toNumber(simulatorForm.brand_min_price);
+    if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
+      overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
+    }
 
-    setSimulatorResult(localResult);
-    setSimulatorInfo(
-      'Backend simulate endpoint henüz yok. Geçici olarak frontend fallback sonucu gösteriliyor.'
-    );
-  } catch (err) {
-    setSimulatorError(getErrorMessage(err));
-  } finally {
-    setSimulatorCalculating(false);
-  }
-}
-
-
-      if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
-        overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
-      }
-
+    try {
       const response = await fetch(`${API_URL}/api/rules/simulate`, {
         method: 'POST',
         headers: {
@@ -2201,13 +2142,28 @@ export default function RulesPage() {
 
       const data = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
+      if (response.ok) {
+        setSimulatorResult(data);
+        setSimulatorInfo('');
+      } else {
         throw new Error(data.error || 'Simülasyon başarısız');
       }
-
-      setSimulatorResult(data);
     } catch (err) {
-      setError(getErrorMessage(err));
+      try {
+        const localResult = buildLocalSimulationResult({
+          simulatorForm,
+          products,
+          marketplaces,
+          marketplaceRules,
+          shippingRules,
+          profitTargets,
+          extraDeductions,
+        });
+        setSimulatorResult(localResult);
+        setSimulatorInfo('Sunucu simülasyonu kullanılamadı; yerel hesaplama gösteriliyor.');
+      } catch (localErr) {
+        setSimulatorError(getErrorMessage(localErr));
+      }
     } finally {
       setSimulatorCalculating(false);
     }
@@ -3342,7 +3298,6 @@ export default function RulesPage() {
        infoMessage={simulatorInfo}
        errorMessage={simulatorError}
      />
-      />
     </>
   );
 }
@@ -3728,18 +3683,30 @@ errorAlert: {
     gap: 18,
     alignItems: 'start',
   },
+  modalGridTwoCol: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.2fr)',
+    gap: 20,
+    alignItems: 'start',
+  },
+  simulatorSearchHint: {
+    display: 'block',
+    marginTop: 4,
+    fontSize: 11,
+    color: '#64748b',
+  },
   // Simulator
   simulatorSection: {
     border: '1px solid #e8eef4',
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 14,
+    padding: 14,
     background: '#fff',
-    boxShadow: '0 4px 16px rgba(15,23,42,0.04)',
+    boxShadow: '0 2px 12px rgba(15,23,42,0.04)',
   },
   simulatorSectionHeader: {
-    marginBottom: 16,
-    paddingBottom: 12,
-    borderBottom: '2px solid #f1f5f9',
+    marginBottom: 12,
+    paddingBottom: 10,
+    borderBottom: '1px solid #f1f5f9',
   },
   simulatorSectionTitle: {
     margin: 0,
