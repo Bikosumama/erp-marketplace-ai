@@ -408,6 +408,11 @@ function formatPercent(value) {
   }
   return `%${Number(value).toFixed(2)}`;
 }
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
 function buildLocalSimulationResult({
   simulatorForm,
   products,
@@ -1218,6 +1223,88 @@ function RulesSimulatorModal({
                   Önerilen fiyat, marj ve uyarılar.
                 </p>
               </div>
+
+              {result?.calculation ? (
+                <div style={styles.simulatorCommissionPanel}>
+                  <div style={styles.simulatorCommissionTop}>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>Komisyon</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatCurrency(result.calculation.commissionAmount)}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>Yatırım Geri Dönüş Oranı</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatPercent(
+                          result.inputs?.cost
+                            ? (numberOrZero(result.calculation.profit) / numberOrZero(result.inputs.cost)) * 100
+                            : numberOrZero(simulatorForm.cost)
+                              ? (numberOrZero(result.calculation.profit) / numberOrZero(simulatorForm.cost)) * 100
+                              : 0
+                        )}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>Hizmet Bedeli</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatCurrency(result.calculation.platformServiceFee)}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>Stopaj Bedeli</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatCurrency(
+                          (Array.isArray(result.calculation.extraDeductionBreakdown)
+                            ? result.calculation.extraDeductionBreakdown
+                                .filter((x) => String(x.deduction_type || '').toLowerCase() === 'withholding')
+                                .reduce((sum, x) => sum + numberOrZero(x.amount), 0)
+                            : 0)
+                        )}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>Kâr Oranı</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatPercent(result.calculation.marginRate)}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorMetricCard}>
+                      <div style={styles.simulatorMetricLabel}>KDV</div>
+                      <div style={styles.simulatorMetricValue}>
+                        {formatCurrency(numberOrZero(result.calculation.grossPrice) - numberOrZero(result.calculation.netExVat))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={styles.simulatorVatTable}>
+                    <div style={styles.simulatorVatRow}>
+                      <div style={styles.simulatorVatCellLabel}>Satıştan Oluşan KDV</div>
+                      <div style={styles.simulatorVatCellValue}>
+                        {formatCurrency(numberOrZero(result.calculation.grossPrice) - numberOrZero(result.calculation.netExVat))}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorVatRow}>
+                      <div style={styles.simulatorVatCellLabel}>Komisyondan Oluşan KDV</div>
+                      <div style={styles.simulatorVatCellValue}>
+                        {formatCurrency((numberOrZero(result.calculation.commissionAmount) * numberOrZero(simulatorForm.vat_rate)) / 100)}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorVatRow}>
+                      <div style={styles.simulatorVatCellLabel}>Hizmet Bedelinden Oluşan KDV</div>
+                      <div style={styles.simulatorVatCellValue}>
+                        {formatCurrency((numberOrZero(result.calculation.platformServiceFee) * numberOrZero(simulatorForm.vat_rate)) / 100)}
+                      </div>
+                    </div>
+                    <div style={styles.simulatorVatRow}>
+                      <div style={styles.simulatorVatCellLabel}>Kargodan Oluşan KDV</div>
+                      <div style={styles.simulatorVatCellValue}>
+                        {formatCurrency((numberOrZero(result.calculation.shippingCost) * numberOrZero(simulatorForm.vat_rate)) / 100)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div style={styles.simulatorSummaryGrid}>
                 <div style={styles.simulatorSummaryCard}>
@@ -3545,6 +3632,61 @@ errorAlert: {
     gridTemplateColumns: '1fr 1fr',
     gap: 10,
     marginBottom: 14,
+  },
+  simulatorCommissionPanel: {
+    border: '1px solid #e8eef4',
+    borderRadius: 16,
+    background: '#ffffff',
+    padding: 16,
+    marginBottom: 14,
+  },
+  simulatorCommissionTop: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+    gap: 10,
+    marginBottom: 12,
+  },
+  simulatorMetricCard: {
+    border: '1px solid #edf2f7',
+    borderRadius: 12,
+    padding: 12,
+    background: '#f8fafc',
+    minHeight: 72,
+  },
+  simulatorMetricLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 6,
+    fontWeight: 600,
+  },
+  simulatorMetricValue: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#0f172a',
+  },
+  simulatorVatTable: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10,
+  },
+  simulatorVatRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    border: '1px solid #fed7aa',
+    borderRadius: 12,
+    padding: '10px 12px',
+    background: '#fff7ed',
+  },
+  simulatorVatCellLabel: {
+    fontSize: 12,
+    color: '#7c2d12',
+    fontWeight: 700,
+  },
+  simulatorVatCellValue: {
+    fontSize: 13,
+    color: '#7c2d12',
+    fontWeight: 800,
   },
   simulatorSummaryCard: {
     border: '1px solid #e8eef4',
