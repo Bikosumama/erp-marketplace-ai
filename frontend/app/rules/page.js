@@ -352,8 +352,6 @@ function buildSimulatorDefaults({
 
   const currentPrice = toNumber(product.sale_price ?? product.list_price ?? product.price, 0);
   const desi = getProductDesi(product);
-  console.log('SIMULATOR_PRODUCT', product);
-  console.log('SIMULATOR_DESI', desi);
   const shippingRule = resolveShippingRule(shippingRules, {
     marketplaceId,
     price: currentPrice,
@@ -830,6 +828,13 @@ function SimulatorValueRow({ label, value, strong = false }) {
   );
 }
 
+function productDisplayLabel(p) {
+  if (!p) return '';
+  return p.stock_code
+    ? `${p.stock_code} - ${p.name || p.product_name || `Ürün #${p.id}`}`
+    : p.name || p.product_name || `Ürün #${p.id}`;
+}
+
 function RulesSimulatorModal({
   open,
   onClose,
@@ -839,15 +844,18 @@ function RulesSimulatorModal({
   setSimulatorForm,
   onApplyDefaults,
   onCalculate,
+  onManualOverride,
   result,
   calculating,
   infoMessage,
   errorMessage,
 }) {
   const [productSearch, setProductSearch] = useState('');
+  const [comboboxOpen, setComboboxOpen] = useState(false);
+  const comboboxRef = useRef(null);
 
   const filteredProducts = useMemo(() => {
-    if (!productSearch.trim()) return products;
+    if (!productSearch.trim()) return products || [];
     const q = productSearch.trim().toLowerCase();
     return (products || []).filter((p) => {
       const name = (p.name || p.product_name || '').toLowerCase();
@@ -856,6 +864,36 @@ function RulesSimulatorModal({
       return name.includes(q) || stockCode.includes(q) || barcode.includes(q);
     });
   }, [products, productSearch]);
+
+  const prevOpenRef = useRef(false);
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      prevOpenRef.current = true;
+      if (simulatorForm.product_id && (products || []).length > 0) {
+        const p = (products || []).find((x) => String(x.id) === String(simulatorForm.product_id));
+        if (p) setProductSearch(productDisplayLabel(p));
+      } else {
+        setProductSearch('');
+      }
+    }
+    if (!open) prevOpenRef.current = false;
+  }, [open, simulatorForm.product_id, products]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target)) setComboboxOpen(false);
+    }
+    if (comboboxOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [comboboxOpen]);
+
+  const handleSelectProduct = (item) => {
+    setSimulatorForm((prev) => ({ ...prev, product_id: item.id }));
+    setProductSearch(productDisplayLabel(item));
+    setComboboxOpen(false);
+  };
 
   if (!open) return null;
 
@@ -908,53 +946,43 @@ function RulesSimulatorModal({
                   </SelectInput>
                 </Field>
 
-                <Field label="Ürün ara (barkod, stok kodu veya ad)">
-                  <TextInput
-                    type="text"
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Yazınca liste daralır..."
-                  />
-                </Field>
-
                 <Field label="Ürün">
-                  <SelectInput
-                    value={simulatorForm.product_id}
-                    onChange={(e) =>
-                      setSimulatorForm((prev) => ({
-                        ...prev,
-                        product_id: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Seçiniz</option>
-                    {filteredProducts.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.stock_code
-                          ? `${item.stock_code} - ${item.name || item.product_name || `Ürün #${item.id}`}`
-                          : item.name || item.product_name || `Ürün #${item.id}`}
-                      </option>
-                    ))}
-                  </SelectInput>
-                  {productSearch.trim() && (
-                    <span style={styles.simulatorSearchHint}>
-                      {filteredProducts.length} ürün eşleşti
-                    </span>
-                  )}
-                </Field>
-
-                <Field label="Alış Fiyatı">
-                  <TextInput
-                    type="number"
-                    step="0.01"
-                    value={simulatorForm.cost}
-                    onChange={(e) =>
-                      setSimulatorForm((prev) => ({
-                        ...prev,
-                        cost: normalizeNumber(e.target.value),
-                      }))
-                    }
-                  />
+                  <div ref={comboboxRef} style={{ position: 'relative' }}>
+                    <TextInput
+                      type="text"
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        setComboboxOpen(true);
+                      }}
+                      onFocus={() => setComboboxOpen(true)}
+                      placeholder="Barkod, stok kodu veya ürün adı ile ara..."
+                      autoComplete="off"
+                    />
+                    {comboboxOpen && (
+                      <div style={styles.comboboxDropdown}>
+                        {filteredProducts.length === 0 ? (
+                          <div style={styles.comboboxEmpty}>Ürün bulunamadı</div>
+                        ) : (
+                          filteredProducts.slice(0, 200).map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              style={styles.comboboxItem}
+                              onClick={() => handleSelectProduct(item)}
+                            >
+                              {productDisplayLabel(item)}
+                            </button>
+                          ))
+                        )}
+                        {filteredProducts.length > 0 && (
+                          <div style={styles.simulatorSearchHint}>
+                            {filteredProducts.length} ürün eşleşti
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </Field>
 
                 <Field label="Mevcut Satış Fiyatı">
@@ -962,12 +990,28 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.current_price}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('current_price');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         current_price: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
+                  />
+                </Field>
+
+                <Field label="Ürün Alış Fiyatı">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.cost}
+                    onChange={(e) => {
+                      onManualOverride?.('cost');
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        cost: normalizeNumber(e.target.value),
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -976,26 +1020,44 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.desi}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('desi');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         desi: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
-                <Field label="Firma Minimum Fiyatı">
+                <Field label="Kargo Ücreti (TL)" hint="Desi ve kuraldan hesaplanır; değiştirirsen manuel sayılır.">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    value={simulatorForm.shipping_cost}
+                    onChange={(e) => {
+                      onManualOverride?.('shipping_cost');
+                      setSimulatorForm((prev) => ({
+                        ...prev,
+                        shipping_cost: normalizeNumber(e.target.value),
+                        shipping_cost_manual: true,
+                      }));
+                    }}
+                  />
+                </Field>
+
+                <Field label="Firma Sabit Fiyat (min.)">
                   <TextInput
                     type="number"
                     step="0.01"
                     value={simulatorForm.brand_min_price}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('brand_min_price');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         brand_min_price: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1014,17 +1076,18 @@ function RulesSimulatorModal({
                   />
                 </Field>
 
-                <Field label="Komisyon Oranı (%)">
+                <Field label="Pazaryeri Komisyon Oranı (%)">
                   <TextInput
                     type="number"
                     step="0.01"
                     value={simulatorForm.commission_rate}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('commission_rate');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         commission_rate: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1033,41 +1096,28 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.vat_rate}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('vat_rate');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         vat_rate: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
-                <Field label="Sabit Ücret (TL)">
+                <Field label="Hizmet Bedeli (TL)" hint="Platform kuralından gelir; değiştirirsen manuel sayılır.">
                   <TextInput
                     type="number"
                     step="0.01"
                     value={simulatorForm.fixed_fee}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('fixed_fee');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         fixed_fee: normalizeNumber(e.target.value),
-                      }))
-                    }
-                  />
-                </Field>
-
-                <Field label="Kargo Ücreti (TL)" hint="Değiştirirsen manuel override edilir.">
-                  <TextInput
-                    type="number"
-                    step="0.01"
-                    value={simulatorForm.shipping_cost}
-                    onChange={(e) =>
-                      setSimulatorForm((prev) => ({
-                        ...prev,
-                        shipping_cost: normalizeNumber(e.target.value),
-                        shipping_cost_manual: true,
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1312,6 +1362,16 @@ export default function RulesPage() {
   const [simulatorError, setSimulatorError] = useState('');
   const [simulatorForm, setSimulatorForm] = useState(createEmptySimulatorForm());
   const [simulatorResult, setSimulatorResult] = useState(null);
+  const [simulatorManualOverrides, setSimulatorManualOverrides] = useState({
+    cost: false,
+    current_price: false,
+    desi: false,
+    brand_min_price: false,
+    commission_rate: false,
+    vat_rate: false,
+    fixed_fee: false,
+    shipping_cost: false,
+  });
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -1442,14 +1502,26 @@ export default function RulesPage() {
 
     if (!defaults) return;
 
-    setSimulatorForm((prev) => ({
-      ...prev,
-      ...defaults,
-    }));
+    setSimulatorForm((prev) => {
+      const next = { ...prev, ...defaults };
+      if (simulatorManualOverrides.cost) next.cost = prev.cost;
+      if (simulatorManualOverrides.current_price) next.current_price = prev.current_price;
+      if (simulatorManualOverrides.desi) next.desi = prev.desi;
+      if (simulatorManualOverrides.brand_min_price) next.brand_min_price = prev.brand_min_price;
+      if (simulatorManualOverrides.commission_rate) next.commission_rate = prev.commission_rate;
+      if (simulatorManualOverrides.vat_rate) next.vat_rate = prev.vat_rate;
+      if (simulatorManualOverrides.fixed_fee) next.fixed_fee = prev.fixed_fee;
+      if (simulatorManualOverrides.shipping_cost || prev.shipping_cost_manual) {
+        next.shipping_cost = prev.shipping_cost;
+        next.shipping_cost_manual = prev.shipping_cost_manual;
+      }
+      return next;
+    });
     setSimulatorResult(null);
   }, [
     simulatorForm.marketplace_id,
     simulatorForm.product_id,
+    simulatorManualOverrides,
     products,
     marketplaceRules,
     shippingRules,
@@ -2927,6 +2999,9 @@ export default function RulesPage() {
        setSimulatorForm={setSimulatorForm}
        onApplyDefaults={applySimulatorDefaults}
        onCalculate={handleSimulatorCalculate}
+       onManualOverride={(field) =>
+         setSimulatorManualOverrides((prev) => ({ ...prev, [field]: true }))
+       }
        result={simulatorResult}
        calculating={simulatorCalculating}
        infoMessage={simulatorInfo}
@@ -3327,6 +3402,36 @@ errorAlert: {
     display: 'block',
     marginTop: 4,
     fontSize: 11,
+    color: '#64748b',
+  },
+  comboboxDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    maxHeight: 280,
+    overflowY: 'auto',
+    backgroundColor: '#fff',
+    border: '1px solid #e2e8f0',
+    borderRadius: 8,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+    zIndex: 1000,
+  },
+  comboboxItem: {
+    display: 'block',
+    width: '100%',
+    padding: '10px 12px',
+    textAlign: 'left',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    fontSize: 14,
+    color: '#1e293b',
+  },
+  comboboxEmpty: {
+    padding: '12px 16px',
+    fontSize: 14,
     color: '#64748b',
   },
   // Simulator
