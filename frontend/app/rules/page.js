@@ -1304,6 +1304,7 @@ export default function RulesPage() {
   const router = useRouter();
   const fileInputRef = useRef(null);
 
+  const [activeTab, setActiveTab] = useState('marketplace');
   const [showShippingHelp, setShowShippingHelp] = useState(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [simulatorCalculating, setSimulatorCalculating] = useState(false);
@@ -1314,6 +1315,8 @@ export default function RulesPage() {
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loadingData, setLoadingData] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [marketplaces, setMarketplaces] = useState([]);
   const [categories, setCategories] = useState([]);
