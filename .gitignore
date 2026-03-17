@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
+## Lockfiles should be committed for reproducible builds
+## (Vercel/CI installs can otherwise differ)
 
 # Environment variables
 .env.local
