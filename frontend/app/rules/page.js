@@ -1155,12 +1155,13 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.min_margin_rate}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('min_margin_rate');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         min_margin_rate: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1169,12 +1170,13 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.target_margin_rate}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('target_margin_rate');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         target_margin_rate: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1183,12 +1185,13 @@ function RulesSimulatorModal({
                     type="number"
                     step="0.01"
                     value={simulatorForm.rounding_ending}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      onManualOverride?.('rounding_ending');
                       setSimulatorForm((prev) => ({
                         ...prev,
                         rounding_ending: normalizeNumber(e.target.value),
-                      }))
-                    }
+                      }));
+                    }}
                   />
                 </Field>
 
@@ -1370,6 +1373,9 @@ export default function RulesPage() {
     commission_rate: false,
     vat_rate: false,
     fixed_fee: false,
+    min_margin_rate: false,
+    target_margin_rate: false,
+    rounding_ending: false,
     shipping_cost: false,
   });
 
@@ -1511,6 +1517,9 @@ export default function RulesPage() {
       if (simulatorManualOverrides.commission_rate) next.commission_rate = prev.commission_rate;
       if (simulatorManualOverrides.vat_rate) next.vat_rate = prev.vat_rate;
       if (simulatorManualOverrides.fixed_fee) next.fixed_fee = prev.fixed_fee;
+      if (simulatorManualOverrides.min_margin_rate) next.min_margin_rate = prev.min_margin_rate;
+      if (simulatorManualOverrides.target_margin_rate) next.target_margin_rate = prev.target_margin_rate;
+      if (simulatorManualOverrides.rounding_ending) next.rounding_ending = prev.rounding_ending;
       if (simulatorManualOverrides.shipping_cost || prev.shipping_cost_manual) {
         next.shipping_cost = prev.shipping_cost;
         next.shipping_cost_manual = prev.shipping_cost_manual;
@@ -1828,6 +1837,12 @@ export default function RulesPage() {
     if (simulatorForm.desi !== '') overrides.desi = toNumber(simulatorForm.desi);
     if (simulatorForm.competitor_price !== '') overrides.competitorPrice = toNumber(simulatorForm.competitor_price);
     if (simulatorForm.brand_min_price !== '') overrides.brandMinPrice = toNumber(simulatorForm.brand_min_price);
+    if (simulatorForm.commission_rate !== '') overrides.commissionRate = toNumber(simulatorForm.commission_rate);
+    if (simulatorForm.vat_rate !== '') overrides.vatRate = toNumber(simulatorForm.vat_rate);
+    if (simulatorForm.fixed_fee !== '') overrides.fixedFee = toNumber(simulatorForm.fixed_fee);
+    if (simulatorForm.min_margin_rate !== '') overrides.minMarginRate = toNumber(simulatorForm.min_margin_rate);
+    if (simulatorForm.target_margin_rate !== '') overrides.targetMarginRate = toNumber(simulatorForm.target_margin_rate);
+    if (simulatorForm.rounding_ending !== '') overrides.roundingEnding = toNumber(simulatorForm.rounding_ending);
     if (simulatorForm.shipping_cost_manual && simulatorForm.shipping_cost !== '') {
       overrides.shippingCost = toNumber(simulatorForm.shipping_cost);
     }
