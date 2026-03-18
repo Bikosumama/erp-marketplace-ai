@@ -664,7 +664,7 @@ export default function ProductsPage() {
                     ['stock_code','Stok Kodu *'],['name','Ad *'],['description','Açıklama'],
                     ['barcode','Barkod'],['brand','Marka'],['category_path','Kategori Yolu'],
                     ['cost','Maliyet'],['sale_price','Satış Fiyatı'],['list_price','Liste Fiyatı'],
-                    ['brand_min_price','Firma Minimum Fiyatı'],['currency','Para Birimi'],['vat_rate','KDV %'],['status','Durum'],
+                    ['brand_min_price','Firma Minimum Fiyatı'],['desi','Desi'],['currency','Para Birimi'],['vat_rate','KDV %'],['status','Durum'],
                     ...marketplaces.flatMap((m) => [
                       [`marketplace_${m.id}_barcode`, `${m.marketplace_name} Barkod`],
                       [`marketplace_${m.id}_sku`, `${m.marketplace_name} SKU`],

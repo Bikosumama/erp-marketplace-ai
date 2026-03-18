@@ -45,18 +45,58 @@ function formatMoney(value, currency = 'TRY') {
   }
 }
 
+function pick(obj, ...keys) {
+  if (!obj || typeof obj !== 'object') return undefined;
+  for (const k of keys) {
+    const v = obj[k];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+function parseMaybeNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const s = String(value).trim().replace(/\s/g, '');
+  // 2,5 -> 2.5
+  const normalized = s.includes(',') && !s.includes('.') ? s.replace(',', '.') : s.replace(',', '.');
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function pickDesi(product) {
+  if (!product) return null;
+  const direct = pick(product, 'desi', 'shipping_desi', 'shipment_desi', 'package_desi', 'volumetric_desi', 'volume_desi');
+  const directNum = parseMaybeNumber(direct);
+  if (directNum !== null) return directNum;
+
+  const attrs = product.attributes && typeof product.attributes === 'object' ? product.attributes : null;
+  if (!attrs) return null;
+
+  // common keys
+  const common = pick(attrs, 'desi', 'Desi', 'kargo_desi', 'KargoDesi', 'shipping_desi', 'shippingDesi', 'desi_value', 'desiValue');
+  const commonNum = parseMaybeNumber(common);
+  if (commonNum !== null) return commonNum;
+
+  // fallback: any attribute key containing "desi"
+  for (const [k, v] of Object.entries(attrs)) {
+    if (String(k).toLowerCase().includes('desi')) {
+      const n = parseMaybeNumber(v);
+      if (n !== null) return n;
+    }
+  }
+
+  return null;
+}
+
 export default function ProductExcelGrid({
   rows,
   onOpenProduct,
   onSelectionChange,
-  initialVisibleColumnIds,
 }) {
   const [rowSelection, setRowSelection] = useState({});
   const [globalFilter, setGlobalFilter] = useState('');
   const [columnFilters, setColumnFilters] = useState({});
-  const [visibleColumnIds, setVisibleColumnIds] = useState(
-    new Set(initialVisibleColumnIds || [])
-  );
 
   const data = useMemo(() => rows || [], [rows]);
 
@@ -101,15 +141,18 @@ export default function ProductExcelGrid({
         enableSorting: false,
         size: 44,
       },
-      col('stock_code', 'Stok Kodu', (r) => r.stock_code ?? '', { meta: { filterable: true }, size: 130 }),
-      col('name', 'Ad', (r) => r.name ?? '', { meta: { filterable: true }, size: 220 }),
-      col('barcode', 'Barkod', (r) => r.barcode ?? '', { meta: { filterable: true }, size: 130 }),
-      col('brand_name', 'Marka', (r) => r.brand_name ?? '', { meta: { filterable: true }, size: 120 }),
-      col('category_name', 'Kategori', (r) => r.category_name ?? '', { meta: { filterable: true }, size: 140 }),
-      col('desi', 'Desi', (r) => r.desi ?? r?.attributes?.desi, {
+      col('stock_code', 'Stok Kodu', (r) => (r && String(pick(r, 'stock_code', 'stok_kodu', 'kod', 'stockCode') ?? '')).trim() || '', { meta: { filterable: true }, size: 130, cell: ({ row }) => (String(pick(row.original, 'stock_code', 'stok_kodu', 'kod', 'stockCode') ?? '').trim() || '—') }),
+      col('name', 'Ürün Adı', (r) => (r && String(pick(r, 'name', 'ad', 'product_name', 'title', 'urun_adi') ?? '')).trim() || '', { meta: { filterable: true }, size: 220, cell: ({ row }) => (String(pick(row.original, 'name', 'ad', 'product_name', 'title', 'urun_adi') ?? '').trim() || '—') }),
+      col('barcode', 'Barkod', (r) => (r && String(pick(r, 'barcode', 'barkod') ?? '')).trim() || '', { meta: { filterable: true }, size: 130, cell: ({ row }) => (String(pick(row.original, 'barcode', 'barkod') ?? '').trim() || '—') }),
+      col('brand_name', 'Marka', (r) => (r && String(pick(r, 'brand_name', 'marka', 'brand') ?? '')).trim() || '', { meta: { filterable: true }, size: 120, cell: ({ row }) => (String(pick(row.original, 'brand_name', 'marka', 'brand') ?? '').trim() || '—') }),
+      col('category_name', 'Kategori', (r) => (r && String(pick(r, 'category_name', 'kategori', 'category') ?? '')).trim() || '', { meta: { filterable: true }, size: 140, cell: ({ row }) => (String(pick(row.original, 'category_name', 'kategori', 'category') ?? '').trim() || '—') }),
+      col('desi', 'Desi', (r) => pickDesi(r), {
         meta: { filterable: true },
         size: 80,
-        cell: ({ row }) => formatNumber(row.original.desi ?? row.original?.attributes?.desi),
+        cell: ({ row }) => {
+          const n = pickDesi(row.original);
+          return n === null ? '—' : formatNumber(n);
+        },
       }),
       col('cost', 'Maliyet', (r) => r.cost, {
         meta: { filterable: true },
@@ -131,13 +174,13 @@ export default function ProductExcelGrid({
         size: 100,
         cell: ({ row }) => formatMoney(row.original.brand_min_price, row.original.currency),
       }),
-      col('currency', 'Para Birimi', (r) => r.currency ?? 'TRY', { meta: { filterable: true }, size: 90 }),
+      col('currency', 'Para Birimi', (r) => r.currency ?? 'TRY', { meta: { filterable: true }, size: 90, cell: ({ getValue }) => String(getValue() ?? 'TRY').trim() || '—' }),
       col('vat_rate', 'KDV%', (r) => r.vat_rate, {
         meta: { filterable: true },
         size: 70,
         cell: ({ row }) => (row.original.vat_rate != null ? `%${row.original.vat_rate}` : '—'),
       }),
-      col('status', 'Durum', (r) => (r?.status === 'passive' ? 'Pasif' : 'Aktif'), { meta: { filterable: true }, size: 80 }),
+      col('status', 'Durum', (r) => (r?.status === 'passive' ? 'Pasif' : 'Aktif'), { meta: { filterable: true }, size: 80, cell: ({ getValue }) => getValue() ?? '—' }),
     ];
   }, []);
 
@@ -163,9 +206,16 @@ export default function ProductExcelGrid({
     },
     onColumnFiltersChange: (updater) => {
       setColumnFilters((prev) => {
-        const prevArr = Object.entries(prev).map(([id, value]) => ({ id, value }));
+        const prevArr = Object.entries(prev)
+          .filter(([id]) => id && id !== 'undefined')
+          .map(([id, value]) => ({ id, value }));
         const next = typeof updater === 'function' ? updater(prevArr) : prevArr;
-        return Array.isArray(next) ? next.reduce((acc, { id, value }) => ({ ...acc, [id]: value }), {}) : prev;
+        return Array.isArray(next)
+          ? next.reduce((acc, { id, value }) => {
+              if (!id || id === 'undefined') return acc;
+              return { ...acc, [id]: value };
+            }, {})
+          : prev;
       });
     },
     enableRowSelection: true,
@@ -180,11 +230,14 @@ export default function ProductExcelGrid({
     getFilteredRowModel: getFilteredRowModel(),
     globalFilterFn: (row, _columnId, filterValue) => {
       if (!filterValue) return true;
-      const original = row.original || {};
+      const o = row.original || {};
+      const stockCode = pick(o, 'stock_code', 'stok_kodu', 'kod');
+      const name = pick(o, 'name', 'ad', 'product_name', 'title');
+      const barcode = pick(o, 'barcode', 'barkod');
       return (
-        containsText(original.stock_code, filterValue) ||
-        containsText(original.name, filterValue) ||
-        containsText(original.barcode, filterValue)
+        containsText(stockCode, filterValue) ||
+        containsText(name, filterValue) ||
+        containsText(barcode, filterValue)
       );
     },
     filterFns: {
@@ -193,10 +246,8 @@ export default function ProductExcelGrid({
   });
 
   const visibleColumns = useMemo(() => {
-    return table
-      .getAllLeafColumns()
-      .filter((c) => c.id === '__select' || visibleColumnIds.has(c.id));
-  }, [table, visibleColumnIds]);
+    return table.getAllLeafColumns();
+  }, [table]);
 
   const selectedRows = useMemo(() => {
     return table.getSelectedRowModel().rows.map((r) => r.original);
@@ -222,15 +273,6 @@ export default function ProductExcelGrid({
     [visibleColumns]
   );
 
-  const toggleColumn = (id) => {
-    setVisibleColumnIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const setFilter = (colId, value) => {
     setColumnFilters((prev) => ({ ...prev, [colId]: value }));
   };
@@ -243,19 +285,14 @@ export default function ProductExcelGrid({
             style={styles.search}
             placeholder="Ara (stok kodu / barkod / ad)"
             value={globalFilter}
-            onChange={(e) => {
-              setGlobalFilter(e.target.value);
-              table.setGlobalFilter(e.target.value);
-            }}
+            onChange={(e) => setGlobalFilter(e.target.value)}
           />
           <button
             type="button"
             style={styles.clearBtn}
             onClick={() => {
               setGlobalFilter('');
-              table.setGlobalFilter('');
               setColumnFilters({});
-              table.resetColumnFilters();
             }}
           >
             Filtreleri Temizle
@@ -264,31 +301,12 @@ export default function ProductExcelGrid({
 
         <div style={styles.metaRight}>
           <div style={styles.counter}>
-            Toplam: <b>{data.length}</b> • Seçili: <b>{selectedRows.length}</b>
+            Toplam: <b>{data.length}</b> • Listelenen: <b>{rowModel.rows.length}</b> • Seçili: <b>{selectedRows.length}</b>
           </div>
         </div>
       </div>
 
       <div style={styles.body}>
-        <aside style={styles.side}>
-          <div style={styles.sideTitle}>Kolonlar</div>
-          <div style={styles.sideList}>
-            {table
-              .getAllLeafColumns()
-              .filter((c) => c.id !== '__select')
-              .map((c) => (
-                <label key={c.id} style={styles.sideItem}>
-                  <input
-                    type="checkbox"
-                    checked={visibleColumnIds.has(c.id)}
-                    onChange={() => toggleColumn(c.id)}
-                  />
-                  <span>{typeof c.columnDef.header === 'string' ? c.columnDef.header : c.id}</span>
-                </label>
-              ))}
-          </div>
-        </aside>
-
         <div style={styles.tableArea}>
           <div style={{ ...styles.tableHead, minWidth: totalColumnsWidth }}>
             <table style={{ ...styles.table, minWidth: totalColumnsWidth }}>
@@ -403,20 +421,7 @@ const styles = {
   },
   metaRight: { display: 'flex', alignItems: 'center', gap: 10 },
   counter: { fontSize: 13, color: '#334155' },
-  body: { display: 'grid', gridTemplateColumns: '240px 1fr', gap: 12, alignItems: 'start' },
-  side: {
-    border: '1px solid #e2e8f0',
-    borderRadius: 14,
-    background: '#fff',
-    padding: 12,
-    position: 'sticky',
-    top: 12,
-    maxHeight: 'calc(100vh - 140px)',
-    overflow: 'auto',
-  },
-  sideTitle: { fontWeight: 800, color: '#0f172a', marginBottom: 10 },
-  sideList: { display: 'flex', flexDirection: 'column', gap: 8 },
-  sideItem: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: '#334155' },
+  body: { width: '100%' },
   tableArea: {
     border: '1px solid #e2e8f0',
     borderRadius: 14,
@@ -427,16 +432,17 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' },
   th: {
     color: '#0f172a',
-    fontSize: 12,
-    fontWeight: 600,
+    fontSize: 13,
+    fontWeight: 700,
     textAlign: 'left',
     padding: '10px 10px',
     whiteSpace: 'nowrap',
     cursor: 'pointer',
+    backgroundColor: '#f1f5f9',
   },
   thInner: { display: 'flex', gap: 8, alignItems: 'center' },
   sortIcon: { opacity: 0.85, fontSize: 11 },
-  thFilter: { background: '#f8fafc', padding: '8px 10px' },
+  thFilter: { background: '#f1f5f9', padding: '8px 10px' },
   filterInput: {
     width: '100%',
     padding: '6px 8px',
